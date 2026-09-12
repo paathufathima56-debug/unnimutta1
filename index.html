@@ -1,1 +1,3501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UNNIMUTTA — The Unnecessarily Serious Double-Yolk Analyzer</title>
+  
+  <!-- Modern Typography: Outfit & Plus Jakarta Sans -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            serif: ['Outfit', 'Georgia', 'serif'],
+            sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace'],
+          },
+          colors: {
+            brand: {
+              50: '#FFFDF7',
+              100: '#FEF9E7',
+              200: '#FEF08A',
+              300: '#FDE047',
+              400: '#FACC15',
+              500: '#EAB308',
+              600: '#CA8A04',
+              700: '#A16207',
+              800: '#854D0E',
+              900: '#78350F',
+              950: '#451A03',
+            }
+          }
+        }
+      }
+    }
+  </script>
 
+  <!-- React 18 & Babel Standalone for Instant Native Browser Execution -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    body {
+      background-color: #FEF9E7;
+      color: #451A03;
+      margin: 0;
+      padding: 0;
+      font-family: "Plus Jakarta Sans", sans-serif;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+    
+    /* Animation Keyframes */
+    @keyframes pulse-subtle {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.03); }
+    }
+    .animate-pulse-subtle {
+      animation: pulse-subtle 3s ease-in-out infinite;
+    }
+  </style>
+</head>
+<body class="bg-[#FEF9E7] text-amber-950 min-h-screen">
+  <div id="root"></div>
+
+  <!-- Application Bundle -->
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // ==========================================
+    // 1. SOUND MANAGER (Web Audio + Slots)
+    // ==========================================
+    class SoundManager {
+      constructor() {
+        this.ctx = null;
+        this.isMuted = false;
+        this.volume = 0.7;
+        this.soundSlots = {};
+        this.listeners = new Set();
+        try {
+          const saved = localStorage.getItem('unnimutta_sound_muted');
+          if (saved !== null) this.isMuted = saved === 'true';
+        } catch(e) {}
+      }
+
+      getAudioContext() {
+        if (!this.ctx && typeof window !== 'undefined') {
+          const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+          if (AudioCtxClass) this.ctx = new AudioCtxClass();
+        }
+        if (this.ctx && this.ctx.state === 'suspended') {
+          this.ctx.resume().catch(() => {});
+        }
+        return this.ctx;
+      }
+
+      getMuted() { return this.isMuted; }
+
+      setMuted(muted) {
+        this.isMuted = muted;
+        try { localStorage.setItem('unnimutta_sound_muted', String(muted)); } catch(e) {}
+        this.listeners.forEach(fn => fn(this.isMuted));
+      }
+
+      toggleMute() {
+        this.setMuted(!this.isMuted);
+        if (!this.isMuted) this.play('pop');
+        return this.isMuted;
+      }
+
+      subscribeMuteChange(fn) {
+        this.listeners.add(fn);
+        return () => this.listeners.delete(fn);
+      }
+
+      registerSoundFile(type, audioUrl) {
+        try {
+          const audio = new Audio(audioUrl);
+          audio.preload = 'auto';
+          this.soundSlots[type] = audio;
+        } catch(e) {}
+      }
+
+      play(type) {
+        if (this.isMuted) return;
+        const slot = this.soundSlots[type];
+        if (slot && slot instanceof HTMLAudioElement) {
+          try {
+            slot.currentTime = 0;
+            slot.volume = this.volume;
+            slot.play().catch(() => this.playProcedural(type));
+            return;
+          } catch(e) {}
+        }
+        this.playProcedural(type);
+      }
+
+      playProcedural(type) {
+        const ctx = this.getAudioContext();
+        if (!ctx) return;
+        const now = ctx.currentTime;
+
+        if (type === 'swing') {
+          // Tennis racket whoosh: Bandpass white noise
+          const bufferSize = ctx.sampleRate * 0.25;
+          const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+          const data = buffer.getChannelData(0);
+          for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+          const noise = ctx.createBufferSource();
+          noise.buffer = buffer;
+          const filter = ctx.createBiquadFilter();
+          filter.type = 'bandpass';
+          filter.frequency.setValueAtTime(400, now);
+          filter.frequency.exponentialRampToValueAtTime(1400, now + 0.12);
+          filter.frequency.exponentialRampToValueAtTime(300, now + 0.25);
+          filter.Q.setValueAtTime(3.0, now);
+          const gain = ctx.createGain();
+          gain.gain.setValueAtTime(0.01, now);
+          gain.gain.linearRampToValueAtTime(0.6 * this.volume, now + 0.1);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+          noise.connect(filter);
+          filter.connect(gain);
+          gain.connect(ctx.destination);
+          noise.start(now);
+        } else if (type === 'thwack') {
+          // Racket hits egg: punchy tone + click transient
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(260, now);
+          osc.frequency.exponentialRampToValueAtTime(45, now + 0.14);
+          gain.gain.setValueAtTime(0.9 * this.volume, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+
+          const click = ctx.createOscillator();
+          const clickGain = ctx.createGain();
+          click.type = 'square';
+          click.frequency.setValueAtTime(900, now);
+          click.frequency.exponentialRampToValueAtTime(120, now + 0.04);
+          clickGain.gain.setValueAtTime(0.5 * this.volume, now);
+          clickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          click.connect(clickGain);
+          clickGain.connect(ctx.destination);
+          osc.start(now);
+          click.start(now);
+          osc.stop(now + 0.18);
+          click.stop(now + 0.05);
+        } else if (type === 'splat') {
+          // Acrylic yolk splatter: wet frequency modulation
+          const carrier = ctx.createOscillator();
+          const mod = ctx.createOscillator();
+          const modGain = ctx.createGain();
+          const gain = ctx.createGain();
+          carrier.type = 'sine';
+          carrier.frequency.setValueAtTime(180, now);
+          carrier.frequency.exponentialRampToValueAtTime(60, now + 0.3);
+          mod.type = 'sawtooth';
+          mod.frequency.setValueAtTime(35, now);
+          modGain.gain.setValueAtTime(120, now);
+          modGain.gain.exponentialRampToValueAtTime(10, now + 0.25);
+          gain.gain.setValueAtTime(0.8 * this.volume, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+          mod.connect(modGain);
+          modGain.connect(carrier.frequency);
+          carrier.connect(gain);
+          gain.connect(ctx.destination);
+          carrier.start(now);
+          mod.start(now);
+          carrier.stop(now + 0.36);
+          mod.stop(now + 0.36);
+        } else if (type === 'pop') {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(450, now);
+          osc.frequency.exponentialRampToValueAtTime(900, now + 0.08);
+          gain.gain.setValueAtTime(0.4 * this.volume, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.09);
+        } else if (type === 'eggHover') {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(240, now);
+          osc.frequency.linearRampToValueAtTime(320, now + 0.08);
+          osc.frequency.linearRampToValueAtTime(280, now + 0.16);
+          gain.gain.setValueAtTime(0.25 * this.volume, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.2);
+        } else if (type === 'hover') {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(900, now);
+          gain.gain.setValueAtTime(0.08 * this.volume, now);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.03);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.035);
+        }
+      }
+    }
+
+    const soundManager = new SoundManager();
+
+    // ==========================================
+    // 2. REUSABLE CHICK MASCOT COMPONENT
+    // ==========================================
+    const ChickMascot = ({
+      expression = 'serious',
+      pose = 'idle',
+      size = 'md',
+      className = '',
+      showShadow = true,
+      interactive = false,
+      speechBubble,
+      onClick,
+      racketAngle = 0,
+    }) => {
+      const sizeMap = { xs: 36, sm: 56, md: 96, lg: 140, xl: 200, hero: 280 };
+      const pixelSize = typeof size === 'number' ? size : sizeMap[size] || 96;
+
+      const renderEyebrows = (expr) => {
+        switch (expr) {
+          case 'serious':
+            return (
+              <g stroke="#78350F" strokeWidth="3" strokeLinecap="round">
+                <path d="M 40 50 L 52 57" />
+                <path d="M 80 50 L 68 57" />
+              </g>
+            );
+          case 'determined':
+            return (
+              <g stroke="#78350F" strokeWidth="3.5" strokeLinecap="round">
+                <path d="M 38 52 L 53 60" />
+                <path d="M 82 52 L 67 60" />
+              </g>
+            );
+          case 'squint':
+            return (
+              <g stroke="#78350F" strokeWidth="2.5" strokeLinecap="round">
+                <path d="M 40 54 L 52 56" />
+                <path d="M 80 54 L 68 56" />
+              </g>
+            );
+          case 'shocked':
+            return (
+              <g stroke="#78350F" strokeWidth="2.5" strokeLinecap="round" fill="none">
+                <path d="M 38 42 Q 46 38 52 42" />
+                <path d="M 68 42 Q 74 38 82 42" />
+              </g>
+            );
+          case 'celebrating':
+            return (
+              <g stroke="#78350F" strokeWidth="2.5" strokeLinecap="round" fill="none">
+                <path d="M 40 46 Q 46 42 52 46" />
+                <path d="M 68 46 Q 74 42 80 46" />
+              </g>
+            );
+          default:
+            return (
+              <g stroke="#78350F" strokeWidth="2" strokeLinecap="round">
+                <path d="M 42 50 L 51 52" />
+                <path d="M 78 50 L 69 52" />
+              </g>
+            );
+        }
+      };
+
+      const renderEyes = (expr) => {
+        if (expr === 'squint') {
+          return (
+            <g stroke="#1F2937" strokeWidth="3" strokeLinecap="round" fill="none">
+              <path d="M 42 63 Q 47 61 52 64" />
+              <path d="M 68 64 Q 73 61 78 63" />
+            </g>
+          );
+        }
+        if (expr === 'shocked') {
+          return (
+            <g>
+              <ellipse cx="46" cy="62" rx="6.5" ry="8" fill="#1F2937" />
+              <ellipse cx="74" cy="62" rx="6.5" ry="8" fill="#1F2937" />
+              <circle cx="44.5" cy="59.5" r="2.5" fill="#FFFFFF" />
+              <circle cx="72.5" cy="59.5" r="2.5" fill="#FFFFFF" />
+            </g>
+          );
+        }
+        if (expr === 'celebrating') {
+          return (
+            <g stroke="#1F2937" strokeWidth="3" strokeLinecap="round" fill="none">
+              <path d="M 40 64 Q 46 58 52 64" />
+              <path d="M 68 64 Q 74 58 80 64" />
+            </g>
+          );
+        }
+        return (
+          <g>
+            <ellipse cx="46" cy="63" rx="5" ry="6" fill="#1F2937" />
+            <ellipse cx="74" cy="63" rx="5" ry="6" fill="#1F2937" />
+            <circle cx="44.5" cy="61" r="1.8" fill="#FFFFFF" />
+            <circle cx="72.5" cy="61" r="1.8" fill="#FFFFFF" />
+            <circle cx="47.5" cy="64.5" r="0.8" fill="#FDE047" />
+            <circle cx="75.5" cy="64.5" r="0.8" fill="#FDE047" />
+          </g>
+        );
+      };
+
+      const renderBeak = (expr) => {
+        if (expr === 'shocked') {
+          return (
+            <g>
+              <ellipse cx="60" cy="73" rx="6" ry="6" fill="#EA580C" />
+              <ellipse cx="60" cy="73.5" rx="4" ry="4" fill="#7C2D12" />
+            </g>
+          );
+        }
+        return (
+          <g>
+            <polygon points="53,69 67,69 60,78" fill="#F97316" stroke="#EA580C" strokeWidth="1" />
+            <line x1="56" y1="71" x2="64" y2="71" stroke="#FFEDD5" strokeWidth="1" strokeLinecap="round" />
+            <polygon points="55,75 65,75 60,79" fill="#EA580C" opacity="0.8" />
+          </g>
+        );
+      };
+
+      const renderPoseAccessories = (p) => {
+        if (p === 'holding-racket' || p === 'swing') {
+          const angle = p === 'swing' ? -45 : racketAngle || 25;
+          return (
+            <g transform={`rotate(${angle}, 95, 75)`}>
+              <rect x="91" y="70" width="7" height="36" rx="2" fill="#9A3412" stroke="#431407" strokeWidth="1" />
+              <rect x="92" y="74" width="5" height="4" fill="#FED7AA" />
+              <rect x="92" y="84" width="5" height="4" fill="#FED7AA" />
+              <rect x="92" y="94" width="5" height="4" fill="#FED7AA" />
+              <path d="M 91 70 L 87 54 L 102 54 L 98 70 Z" fill="#DC2626" stroke="#991B1B" strokeWidth="1" />
+              <ellipse cx="94.5" cy="36" rx="22" ry="26" fill="none" stroke="#DC2626" strokeWidth="4" />
+              <ellipse cx="94.5" cy="36" rx="20" ry="24" fill="#FEF3C7" fillOpacity="0.15" stroke="#B91C1C" strokeWidth="1" />
+              <g stroke="#94A3B8" strokeWidth="0.8" opacity="0.65">
+                <line x1="84" y1="14" x2="84" y2="58" />
+                <line x1="89" y1="11" x2="89" y2="61" />
+                <line x1="94.5" y1="10" x2="94.5" y2="62" />
+                <line x1="100" y1="11" x2="100" y2="61" />
+                <line x1="105" y1="14" x2="105" y2="58" />
+                <line x1="75" y1="26" x2="114" y2="26" />
+                <line x1="73" y1="33" x2="116" y2="33" />
+                <line x1="73" y1="40" x2="116" y2="40" />
+                <line x1="75" y1="47" x2="114" y2="47" />
+              </g>
+            </g>
+          );
+        }
+        if (p === 'clipboard') {
+          return (
+            <g transform="translate(14, 52) rotate(-10)">
+              <rect x="0" y="0" width="22" height="32" rx="3" fill="#B45309" stroke="#78350F" strokeWidth="1" />
+              <rect x="6" y="-3" width="10" height="5" rx="1.5" fill="#94A3B8" />
+              <rect x="3" y="5" width="16" height="23" rx="1" fill="#FEF9C3" />
+              <line x1="5" y1="9" x2="17" y2="9" stroke="#334155" strokeWidth="1" />
+              <line x1="5" y1="14" x2="15" y2="14" stroke="#334155" strokeWidth="1" />
+              <line x1="5" y1="19" x2="16" y2="19" stroke="#DC2626" strokeWidth="1" />
+            </g>
+          );
+        }
+        if (p === 'measuring') {
+          return (
+            <g transform="translate(14, 56) rotate(-15)">
+              <rect x="0" y="0" width="30" height="8" rx="1.5" fill="#E2E8F0" stroke="#475569" strokeWidth="1" />
+              <line x1="4" y1="0" x2="4" y2="4" stroke="#0F172A" strokeWidth="0.8" />
+              <line x1="8" y1="0" x2="8" y2="6" stroke="#0F172A" strokeWidth="0.8" />
+              <line x1="12" y1="0" x2="12" y2="4" stroke="#0F172A" strokeWidth="0.8" />
+              <line x1="16" y1="0" x2="16" y2="6" stroke="#0F172A" strokeWidth="0.8" />
+              <line x1="20" y1="0" x2="20" y2="4" stroke="#0F172A" strokeWidth="0.8" />
+              <line x1="24" y1="0" x2="24" y2="6" stroke="#0F172A" strokeWidth="0.8" />
+            </g>
+          );
+        }
+        return null;
+      };
+
+      return (
+        <div
+          className={`relative inline-flex flex-col items-center select-none ${interactive ? 'cursor-pointer group transition-transform duration-200 hover:scale-105 active:scale-95' : ''} ${className}`}
+          onClick={onClick}
+          style={{ width: pixelSize, height: pixelSize }}
+        >
+          {speechBubble && (
+            <div className="absolute -top-14 z-30 bg-amber-950 text-amber-50 text-[11px] font-semibold px-3 py-1.5 rounded-xl shadow-xl whitespace-nowrap border border-amber-700 animate-pulse-subtle">
+              {speechBubble}
+              <div className="absolute bottom-[-5px] left-1/2 -translate-x-1/2 w-0 h-0 border-x-[5px] border-x-transparent border-t-[6px] border-t-amber-950" />
+            </div>
+          )}
+
+          <svg viewBox="0 0 120 120" className="w-full h-full overflow-visible drop-shadow-sm" fill="none">
+            <defs>
+              <linearGradient id="chickBodyGradStandalone" x1="60" y1="20" x2="60" y2="105" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stopColor="#FEF08A" />
+                <stop offset="60%" stopColor="#FACC15" />
+                <stop offset="100%" stopColor="#EAB308" />
+              </linearGradient>
+              <linearGradient id="chickBellyGradStandalone" x1="60" y1="65" x2="60" y2="102" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stopColor="#FFFBEB" />
+                <stop offset="100%" stopColor="#FEF3C7" />
+              </linearGradient>
+            </defs>
+
+            {showShadow && <ellipse cx="60" cy="110" rx="36" ry="7" fill="#78350F" fillOpacity="0.12" />}
+
+            {/* Feet */}
+            <g>
+              <path d="M 44 98 L 38 108 M 44 98 L 44 109 M 44 98 L 50 108" stroke="#EA580C" strokeWidth="2.8" strokeLinecap="round" />
+              <path d="M 76 98 L 70 108 M 76 98 L 76 109 M 76 98 L 82 108" stroke="#EA580C" strokeWidth="2.8" strokeLinecap="round" />
+            </g>
+
+            {pose === 'swing' && renderPoseAccessories(pose)}
+
+            {/* Left Wing */}
+            <path d="M 28 66 C 18 72 16 84 28 88 C 34 86 36 78 35 68 Z" fill="#FACC15" stroke="#CA8A04" strokeWidth="1.5" />
+
+            {/* Body */}
+            <path d="M 60 22 C 34 22 24 50 24 75 C 24 94 40 104 60 104 C 80 104 96 94 96 75 C 96 50 86 22 60 22 Z" fill="url(#chickBodyGradStandalone)" stroke="#CA8A04" strokeWidth="1.5" />
+
+            {/* Belly */}
+            <path d="M 60 62 C 45 62 38 76 38 88 C 38 98 48 103 60 103 C 72 103 82 98 82 88 C 82 76 75 62 60 62 Z" fill="url(#chickBellyGradStandalone)" opacity="0.85" />
+
+            {/* Head Feather Cowlick */}
+            <path d="M 60 22 C 60 14 54 8 52 7 C 56 12 58 16 60 22 Z" fill="#EAB308" />
+            <path d="M 60 22 C 62 12 68 7 70 6 C 66 12 64 16 60 22 Z" fill="#CA8A04" />
+
+            {/* Cheek Tufts */}
+            <path d="M 23 68 C 18 70 20 75 25 76" stroke="#CA8A04" strokeWidth="1.2" strokeLinecap="round" />
+            <path d="M 97 68 C 102 70 100 75 95 76" stroke="#CA8A04" strokeWidth="1.2" strokeLinecap="round" />
+
+            {/* Cheeks */}
+            <circle cx="36" cy="71" r="6" fill="#F87171" fillOpacity="0.4" />
+            <circle cx="84" cy="71" r="6" fill="#F87171" fillOpacity="0.4" />
+
+            {renderEyebrows(expression)}
+            {renderEyes(expression)}
+            {renderBeak(expression)}
+
+            {expression === 'serious' && (
+              <g opacity="0.85">
+                <circle cx="46" cy="63" r="8.5" fill="none" stroke="#D97706" strokeWidth="1.4" />
+                <path d="M 37.5 63 L 32 66" stroke="#D97706" strokeWidth="1" />
+                <path d="M 42 58 A 6 6 0 0 1 48 58" stroke="#FFFFFF" strokeWidth="1" strokeLinecap="round" fill="none" />
+              </g>
+            )}
+
+            {/* Right Wing */}
+            <path d="M 92 66 C 102 72 104 84 92 88 C 86 86 84 78 85 68 Z" fill="#FACC15" stroke="#CA8A04" strokeWidth="1.5" />
+
+            {pose !== 'swing' && renderPoseAccessories(pose)}
+          </svg>
+        </div>
+      );
+    };
+
+    // ==========================================
+    // 3. MICRO-TOOLTIP COMPONENT
+    // ==========================================
+    const MicroTooltip = ({ children, content, position = 'top', soundType = 'hover', className = '' }) => {
+      const [isVisible, setIsVisible] = useState(false);
+
+      const handleMouseEnter = () => {
+        setIsVisible(true);
+        soundManager.play(soundType === 'eggHover' ? 'eggHover' : 'hover');
+      };
+
+      const handleMouseLeave = () => setIsVisible(false);
+
+      const posMap = {
+        top: 'bottom-full left-1/2 -translate-x-1/2 mb-2',
+        bottom: 'top-full left-1/2 -translate-x-1/2 mt-2',
+      };
+
+      return (
+        <div className={`relative inline-block ${className}`} onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
+          {children}
+          {isVisible && (
+            <div className={`absolute z-30 pointer-events-none transition-all duration-200 transform scale-100 ${posMap[position] || posMap.top}`}>
+              <div className="relative bg-amber-950/95 backdrop-blur-sm text-amber-100 text-[11px] font-medium tracking-wide px-3 py-1.5 rounded-lg shadow-xl border border-amber-800/80 whitespace-nowrap flex items-center gap-1.5">
+                <span className="text-amber-400">💡</span>
+                <span>{content}</span>
+                <div className="absolute top-full left-1/2 -translate-x-1/2 border-solid border-t-amber-950 border-t-4 border-x-transparent border-x-4 border-b-0" />
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    // ==========================================
+    // 4. SOUND TOGGLE COMPONENT
+    // ==========================================
+    const SoundToggle = ({ variant = 'pill', className = '' }) => {
+      const [isMuted, setIsMuted] = useState(soundManager.getMuted());
+
+      useEffect(() => {
+        return soundManager.subscribeMuteChange(muted => setIsMuted(muted));
+      }, []);
+
+      const handleToggle = () => soundManager.toggleMute();
+
+      if (variant === 'icon') {
+        return (
+          <button
+            onClick={handleToggle}
+            className={`w-9 h-9 rounded-full flex items-center justify-center bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 transition-all transform hover:scale-105 active:scale-95 ${className}`}
+            title={isMuted ? 'Sound OFF - Click to enable sound' : 'Sound ON - Click to mute'}
+          >
+            <span>{isMuted ? '🔇' : '🔊'}</span>
+          </button>
+        );
+      }
+
+      return (
+        <button
+          onClick={handleToggle}
+          className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold tracking-wide transition-all border transform hover:scale-105 active:scale-95 ${
+            isMuted ? 'bg-amber-50 text-amber-800/70 border-amber-200 hover:bg-amber-100' : 'bg-amber-100 text-amber-950 border-amber-300 shadow-sm hover:bg-amber-200'
+          } ${className}`}
+          title={isMuted ? 'Click to enable audio effects' : 'Click to mute audio effects'}
+        >
+          <span>{isMuted ? '🔇' : '🔊'}</span>
+          <span>{isMuted ? 'Sound OFF' : 'Sound ON'}</span>
+          {!isMuted && (
+            <span className="flex h-2 w-2 relative">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
+            </span>
+          )}
+        </button>
+      );
+    };
+
+    // ==========================================
+    // 5. INTRO ANIMATION (2-4s, racket hit & splash)
+    // ==========================================
+    const IntroAnimation = ({ onComplete, isMuted, onToggleMute }) => {
+      const [stage, setStage] = useState('ready');
+      const [racketAngle, setRacketAngle] = useState(20);
+      const [eggTransform, setEggTransform] = useState({ scale: 1, x: 0, y: 0, rotate: 0 });
+      const [splashScale, setSplashScale] = useState(0);
+      const [opacity, setOpacity] = useState(1);
+      const hasFinishedRef = useRef(false);
+
+      const finishIntro = () => {
+        if (hasFinishedRef.current) return;
+        hasFinishedRef.current = true;
+        setOpacity(0);
+        setTimeout(() => onComplete(), 300);
+      };
+
+      useEffect(() => {
+        const handleKeyDown = (e) => {
+          if (e.key === 'Escape' || e.key === ' ' || e.key === 'Enter') finishIntro();
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+      }, []);
+
+      useEffect(() => {
+        const tWindup = setTimeout(() => {
+          setStage('windup');
+          setRacketAngle(-55);
+        }, 700);
+
+        const tHit = setTimeout(() => {
+          setStage('hit');
+          soundManager.play('swing');
+          setRacketAngle(85);
+
+          setTimeout(() => {
+            soundManager.play('thwack');
+            setStage('fly');
+            setEggTransform({ scale: 26, x: 0, y: -40, rotate: 360 });
+          }, 150);
+        }, 1200);
+
+        const tSplash = setTimeout(() => {
+          setStage('splash');
+          soundManager.play('splat');
+          setSplashScale(1);
+        }, 1850);
+
+        const tFadeout = setTimeout(() => {
+          setStage('fadeout');
+          setOpacity(0);
+        }, 2700);
+
+        const tFinish = setTimeout(() => finishIntro(), 3100);
+
+        return () => {
+          clearTimeout(tWindup);
+          clearTimeout(tHit);
+          clearTimeout(tSplash);
+          clearTimeout(tFadeout);
+          clearTimeout(tFinish);
+        };
+      }, []);
+
+      return (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center overflow-hidden select-none bg-[#FEF9E7] transition-opacity duration-300"
+          style={{ opacity }}
+        >
+          {/* Top Controls */}
+          <div className="absolute top-5 left-5 right-5 z-40 flex items-center justify-between pointer-events-auto">
+            <button
+              onClick={onToggleMute}
+              className="flex items-center gap-2 px-3.5 py-2 rounded-full bg-amber-100/90 hover:bg-amber-200/90 text-amber-900 border border-amber-300 shadow-sm backdrop-blur-sm text-xs font-semibold tracking-wide transition-all transform hover:scale-105 active:scale-95"
+            >
+              <span>{isMuted ? '🔇' : '🔊'}</span>
+              <span>{isMuted ? 'Sound OFF' : 'Sound ON'}</span>
+            </button>
+
+            <button
+              onClick={finishIntro}
+              className="flex items-center gap-2 px-4 py-2 rounded-full bg-amber-900 hover:bg-amber-800 text-amber-50 shadow-md text-xs font-bold tracking-wider uppercase transition-all transform hover:scale-105 active:scale-95"
+            >
+              <span>Skip Intro</span>
+              <span className="text-[10px] text-amber-300">⏩</span>
+            </button>
+          </div>
+
+          {/* Court Floor Grid */}
+          <div className="absolute inset-0 pointer-events-none opacity-20">
+            <div className="w-full h-full" style={{
+              backgroundImage: 'linear-gradient(#CA8A04 1px, transparent 1px), linear-gradient(90deg, #CA8A04 1px, transparent 1px)',
+              backgroundSize: '48px 48px'
+            }} />
+            <div className="absolute bottom-1/3 left-0 right-0 h-1 bg-amber-600/40" />
+          </div>
+
+          {/* Animated Stage Visuals */}
+          <div className="relative w-full max-w-xl h-[460px] flex flex-col items-center justify-center">
+            <div className="absolute top-12 text-center transition-all duration-300">
+              <p className="text-[11px] font-bold tracking-widest uppercase text-amber-700/80 bg-amber-200/50 px-3 py-1 rounded-full inline-block border border-amber-300/40 font-mono">
+                {stage === 'ready' && 'CALIBRATING BALLISTIC METROLOGY...'}
+                {stage === 'windup' && 'TARGET LOCK: DOUBLE-YOLK SPECIMEN #01'}
+                {stage === 'hit' && 'EXECUTING KINETIC TRANSFER!'}
+                {(stage === 'fly' || stage === 'splash' || stage === 'fadeout') && 'ACRYLIC IMPACT DETECTED!'}
+              </p>
+            </div>
+
+            <div className="relative flex items-end justify-center w-full h-72">
+              <div
+                className="relative transition-transform duration-200 z-10"
+                style={{
+                  transform: stage === 'windup' ? 'scale(1.08) translateX(-12px)' : stage === 'hit' ? 'scale(1.1) translateX(18px)' : 'scale(1)',
+                }}
+              >
+                <ChickMascot
+                  size={180}
+                  expression={stage === 'ready' ? 'serious' : stage === 'windup' ? 'determined' : stage === 'hit' ? 'serious' : 'shocked'}
+                  pose={stage === 'hit' ? 'swing' : 'holding-racket'}
+                  racketAngle={racketAngle}
+                  showShadow={true}
+                />
+              </div>
+
+              {/* Flying Egg */}
+              <div
+                className="absolute z-20 transition-all pointer-events-none"
+                style={{
+                  left: '56%',
+                  bottom: '42px',
+                  transform: `translate(${eggTransform.x}px, ${eggTransform.y}px) scale(${eggTransform.scale}) rotate(${eggTransform.rotate}deg)`,
+                  transition: stage === 'fly' ? 'transform 0.48s cubic-bezier(0.12, 0.8, 0.32, 1)' : 'transform 0.2s ease',
+                  transformOrigin: 'center center',
+                }}
+              >
+                <svg width="68" height="88" viewBox="0 0 68 88" fill="none" className="drop-shadow-lg">
+                  <defs>
+                    <radialGradient id="eggShellIntro" cx="38%" cy="32%" r="65%">
+                      <stop offset="0%" stopColor="#FFFFFF" />
+                      <stop offset="70%" stopColor="#FFFBEB" />
+                      <stop offset="100%" stopColor="#FDE68A" />
+                    </radialGradient>
+                  </defs>
+                  <path d="M 34 4 C 15 4 4 32 4 58 C 4 75 17 84 34 84 C 51 84 64 75 64 58 C 64 32 53 4 34 4 Z" fill="url(#eggShellIntro)" stroke="#F59E0B" strokeWidth="1.5" />
+                  <text x="34" y="58" textAnchor="middle" fill="#B45309" fontSize="7" fontWeight="bold" fontFamily="monospace" opacity="0.65">MUTTA-01</text>
+                  <ellipse cx="28" cy="30" rx="6" ry="12" fill="#FFFFFF" opacity="0.7" transform="rotate(-15 28 30)" />
+                </svg>
+              </div>
+            </div>
+          </div>
+
+          {/* Giant Acrylic Paint & Double-Yolk Splash */}
+          <div
+            className="fixed inset-0 z-40 pointer-events-none flex items-center justify-center transition-all"
+            style={{
+              transform: `scale(${splashScale})`,
+              transition: stage === 'splash' ? 'transform 0.42s cubic-bezier(0.18, 0.89, 0.32, 1.25)' : 'none',
+              opacity: stage === 'fadeout' ? 0 : 1,
+            }}
+          >
+            <svg viewBox="0 0 1000 1000" className="w-[140vw] h-[140vh] max-w-none text-[#FACC15] drop-shadow-2xl" fill="none">
+              <defs>
+                <radialGradient id="acrylicGradStandalone" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%" stopColor="#FFFBEB" />
+                  <stop offset="18%" stopColor="#FEF08A" />
+                  <stop offset="48%" stopColor="#FACC15" />
+                  <stop offset="78%" stopColor="#EAB308" />
+                  <stop offset="100%" stopColor="#CA8A04" />
+                </radialGradient>
+                <radialGradient id="deepYolkCoreStandalone" cx="45%" cy="45%" r="50%">
+                  <stop offset="0%" stopColor="#FEF08A" />
+                  <stop offset="50%" stopColor="#F59E0B" />
+                  <stop offset="100%" stopColor="#D97706" />
+                </radialGradient>
+              </defs>
+
+              <path d="M 500 120 C 660 110, 840 240, 890 390 C 940 540, 880 720, 770 830 C 660 940, 430 960, 280 880 C 130 800, 80 620, 110 450 C 140 280, 340 130, 500 120 Z" fill="#FEF3C7" fillOpacity="0.45" />
+              <path d="M 500 180 C 630 160, 750 230, 820 330 C 890 430, 930 520, 870 630 C 810 740, 780 810, 670 850 C 560 890, 430 870, 330 830 C 230 790, 160 700, 150 580 C 140 460, 180 340, 270 260 C 360 180, 430 190, 500 180 Z" fill="url(#acrylicGradStandalone)" />
+
+              {/* TWIN YOLKS */}
+              <circle cx="390" cy="470" r="140" fill="url(#deepYolkCoreStandalone)" />
+              <circle cx="610" cy="510" r="130" fill="url(#deepYolkCoreStandalone)" />
+              <ellipse cx="360" cy="430" rx="35" ry="18" fill="#FFFFFF" fillOpacity="0.55" transform="rotate(-25 360 430)" />
+              <ellipse cx="585" cy="475" rx="30" ry="15" fill="#FFFFFF" fillOpacity="0.55" transform="rotate(-20 585 475)" />
+
+              {/* Splatters */}
+              <circle cx="890" cy="220" r="28" fill="#FACC15" />
+              <circle cx="940" cy="260" r="16" fill="#EAB308" />
+              <circle cx="840" cy="160" r="18" fill="#FDE047" />
+              <circle cx="920" cy="740" r="24" fill="#FACC15" />
+              <circle cx="850" cy="880" r="32" fill="#EAB308" />
+              <circle cx="160" cy="820" r="26" fill="#FACC15" />
+              <circle cx="240" cy="940" r="30" fill="#EAB308" />
+              <circle cx="180" cy="200" r="22" fill="#FACC15" />
+
+              <text x="500" y="515" textAnchor="middle" fill="#78350F" fontSize="48" fontWeight="900" letterSpacing="2" fontFamily="sans-serif">
+                UNNIMUTTA
+              </text>
+            </svg>
+          </div>
+        </div>
+      );
+    };
+
+    // ==========================================
+    // 6. NAVBAR COMPONENT
+    // ==========================================
+    const Navbar = ({ activeTab, onSelectTab, onReplayIntro }) => {
+      const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+      const navItems = [
+        { id: 'home', label: 'Home', icon: '🏠' },
+        { id: 'analyze', label: 'Analyze Egg', icon: '🥚', badge: 'Part 2' },
+        { id: 'leaderboard', label: 'Leaderboard', icon: '🏆', badge: 'Part 6' },
+        { id: 'game', label: 'Chicken Game', icon: '🎮', badge: 'Part 7' },
+        { id: 'about', label: 'About', icon: '📋' },
+      ];
+
+      const handleTabClick = (id) => {
+        soundManager.play('pop');
+        onSelectTab(id);
+        setMobileMenuOpen(false);
+      };
+
+      return (
+        <header className="sticky top-0 z-30 w-full bg-[#FEF9E7]/90 backdrop-blur-md border-b border-amber-200/80 transition-all">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex items-center justify-between h-16">
+              <div onClick={() => handleTabClick('home')} className="flex items-center gap-3 cursor-pointer group select-none">
+                <div className="relative transform transition-transform group-hover:rotate-6">
+                  <ChickMascot size={40} expression="serious" pose="idle" showShadow={false} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-extrabold text-xl tracking-tight text-amber-950 font-serif">
+                      UNNIMUTTA
+                    </span>
+                    <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-amber-200 text-amber-900 border border-amber-300 font-mono">
+                      Lab v1.0
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-amber-800/80 font-medium tracking-wide hidden sm:block">
+                    Double-Yolk Metrology Division
+                  </p>
+                </div>
+              </div>
+
+              <nav className="hidden md:flex items-center gap-1.5 bg-amber-100/50 p-1.5 rounded-full border border-amber-200/70">
+                {navItems.map((item) => {
+                  const isActive = activeTab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => handleTabClick(item.id)}
+                      className={`relative flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all duration-150 ${
+                        isActive ? 'bg-amber-900 text-amber-50 shadow-sm' : 'text-amber-900/80 hover:text-amber-950 hover:bg-amber-200/60'
+                      }`}
+                    >
+                      <span>{item.icon}</span>
+                      <span>{item.label}</span>
+                      {item.badge && (
+                        <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-mono ${isActive ? 'bg-amber-800 text-amber-200' : 'bg-amber-200/80 text-amber-800'}`}>
+                          {item.badge}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </nav>
+
+              <div className="hidden sm:flex items-center gap-2.5">
+                <button
+                  onClick={() => { soundManager.play('pop'); onReplayIntro(); }}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium text-amber-900 hover:text-amber-950 bg-amber-100/80 hover:bg-amber-200 border border-amber-300/80 transition-all transform hover:scale-105 active:scale-95"
+                >
+                  <span>🎬</span>
+                  <span>Replay Intro</span>
+                </button>
+                <SoundToggle variant="pill" />
+              </div>
+
+              <div className="flex sm:hidden items-center gap-2">
+                <SoundToggle variant="icon" />
+                <button
+                  onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                  className="p-2 rounded-lg text-amber-900 hover:bg-amber-200/60 transition-colors"
+                >
+                  <span className="text-xl">☰</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {mobileMenuOpen && (
+            <div className="sm:hidden border-t border-amber-200 bg-[#FEF9E7] px-4 pt-3 pb-5 space-y-2 shadow-lg">
+              {navItems.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => handleTabClick(item.id)}
+                  className={`flex items-center justify-between w-full px-4 py-2.5 rounded-xl text-sm font-semibold text-left transition-colors ${
+                    activeTab === item.id ? 'bg-amber-900 text-amber-50' : 'text-amber-900 hover:bg-amber-100'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span>{item.icon}</span>
+                    <span>{item.label}</span>
+                  </div>
+                  {item.badge && (
+                    <span className="text-[10px] bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full font-mono">
+                      {item.badge}
+                    </span>
+                  )}
+                </button>
+              ))}
+              <div className="pt-2 border-t border-amber-200 flex justify-center">
+                <button
+                  onClick={() => { soundManager.play('pop'); onReplayIntro(); setMobileMenuOpen(false); }}
+                  className="w-full text-center py-2 text-xs font-semibold text-amber-900 bg-amber-100 rounded-lg border border-amber-300"
+                >
+                  🎬 Replay Opening Intro
+                </button>
+              </div>
+            </div>
+          )}
+        </header>
+      );
+    };
+
+    // ==========================================
+    // 7. HERO SECTION COMPONENT
+    // ==========================================
+    const CHICK_QUOTES = [
+      "Calibrating yolk sphericity index to ±0.002mm...",
+      "Specimen #402 exhibits an alarming 87% twin-yolk probability.",
+      "Please do not crack the egg without senior poultry authorization.",
+      "The Virtual ₹10 Coin standard is currently being prepared.",
+      "My peer reviewers doubted me. They will see.",
+      "Double yolks are not an accident. They are a destiny.",
+    ];
+
+    const HeroSection = ({ onNavigateAnalyze, onNavigateLeaderboard }) => {
+      const [quoteIndex, setQuoteIndex] = useState(0);
+      const [speechBubble, setSpeechBubble] = useState("Subject looks promising.");
+      const [chickExpr, setChickExpr] = useState('serious');
+      const [eggWobble, setEggWobble] = useState(false);
+
+      const handleChickClick = () => {
+        soundManager.play('pop');
+        const nextIdx = (quoteIndex + 1) % CHICK_QUOTES.length;
+        setQuoteIndex(nextIdx);
+        setSpeechBubble(CHICK_QUOTES[nextIdx]);
+        const exprs = ['serious', 'squint', 'shocked', 'determined'];
+        setChickExpr(exprs[nextIdx % exprs.length]);
+      };
+
+      const handleEggClick = () => {
+        soundManager.play('eggHover');
+        setEggWobble(true);
+        setChickExpr('shocked');
+        setSpeechBubble("Careful! Specimen structural integrity is fragile.");
+        setTimeout(() => {
+          setEggWobble(false);
+          setChickExpr('serious');
+        }, 900);
+      };
+
+      return (
+        <div className="relative min-h-[calc(100vh-4rem)] flex flex-col justify-between py-8 sm:py-12 overflow-hidden">
+          <div className="absolute inset-0 pointer-events-none opacity-40">
+            <div className="w-full h-full" style={{ backgroundImage: 'radial-gradient(#FDE68A 1px, transparent 1px)', backgroundSize: '24px 24px' }} />
+          </div>
+
+          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full z-10 my-auto">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
+              
+              {/* Left Column: Headlines */}
+              <div className="lg:col-span-7 flex flex-col items-start text-left space-y-6">
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 text-xs font-bold tracking-wide uppercase shadow-xs">
+                  <span className="text-amber-600">🔬</span>
+                  <span>Rigorous Poultry Metrology Laboratory</span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                </div>
+
+                <div>
+                  <h1 className="text-5xl sm:text-6xl md:text-7xl font-extrabold text-amber-950 tracking-tight font-serif leading-[1.08]">
+                    UNNIMUTTA
+                  </h1>
+                  <p className="mt-2 text-xl sm:text-2xl font-bold text-amber-800/90 font-sans tracking-tight">
+                    “The unnecessarily serious double-yolk analyzer.”
+                  </p>
+                </div>
+
+                <p className="text-base sm:text-lg text-amber-900/80 max-w-xl font-normal leading-relaxed">
+                  Upload a double-yolk egg. Measure the yolks. Compare them. Discover <strong className="font-semibold text-amber-950">absolutely critical information</strong>.
+                </p>
+
+                {/* Micro-interaction action buttons */}
+                <div className="flex flex-wrap items-center gap-4 pt-2">
+                  <MicroTooltip content="Proceed with unnecessary science." position="top">
+                    <button
+                      onClick={() => { soundManager.play('pop'); onNavigateAnalyze(); }}
+                      className="group relative inline-flex items-center gap-3 px-6 sm:px-8 py-3.5 rounded-2xl bg-amber-400 hover:bg-amber-300 text-amber-950 font-bold text-base shadow-md hover:shadow-lg border-2 border-amber-500/80 transition-all duration-150 transform hover:-translate-y-0.5 active:translate-y-0"
+                    >
+                      <span className="text-xl group-hover:scale-125 transition-transform">🥚</span>
+                      <span>Analyze My Egg</span>
+                      <span className="text-amber-800 text-xs bg-amber-200/80 px-2 py-0.5 rounded-md font-mono font-medium">Part 2</span>
+                    </button>
+                  </MicroTooltip>
+
+                  <MicroTooltip content="Witness the greatest egg researchers." position="top">
+                    <button
+                      onClick={() => { soundManager.play('pop'); onNavigateLeaderboard(); }}
+                      className="inline-flex items-center gap-2.5 px-5 sm:px-7 py-3.5 rounded-2xl bg-[#FFFDF7] hover:bg-amber-50 text-amber-900 font-bold text-base border-2 border-amber-300 shadow-sm hover:shadow-md transition-all duration-150 transform hover:-translate-y-0.5 active:translate-y-0"
+                    >
+                      <span className="text-lg">🏆</span>
+                      <span>View Leaderboard</span>
+                      <span className="text-amber-700/70 text-xs font-mono">Part 6</span>
+                    </button>
+                  </MicroTooltip>
+                </div>
+
+                <div className="flex items-center gap-2 text-xs font-medium text-amber-800/70 italic pt-1">
+                  <span>✦</span>
+                  <span>Important research. Probably.</span>
+                </div>
+              </div>
+
+              {/* Right Column: Interactive Mascot & Research Egg */}
+              <div className="lg:col-span-5 flex flex-col items-center justify-center">
+                <div className="relative w-full max-w-md bg-[#FFFDF7] rounded-3xl p-6 sm:p-8 border-2 border-amber-200/90 shadow-xl shadow-amber-900/5">
+                  <div className="flex items-center justify-between pb-4 mb-4 border-b border-amber-100">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
+                      <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-amber-900">
+                        BENCH SPECIMEN: ACTIVE
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-mono text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+                      ID: #MUTTA-2026-X
+                    </span>
+                  </div>
+
+                  <div className="relative h-64 flex items-end justify-center py-4 select-none">
+                    <div className="absolute bottom-2 left-6 right-6 h-8 bg-amber-100 rounded-full border border-amber-200 blur-[1px]" />
+                    
+                    <div className="relative z-10 mr-4 transform hover:scale-105 transition-transform">
+                      <ChickMascot
+                        size={160}
+                        expression={chickExpr}
+                        pose="clipboard"
+                        speechBubble={speechBubble}
+                        interactive={true}
+                        onClick={handleChickClick}
+                        showShadow={true}
+                      />
+                      <div className="text-[10px] font-semibold text-center text-amber-700 mt-1 font-mono">
+                        Click chick to consult 💬
+                      </div>
+                    </div>
+
+                    <div className="relative z-20 mb-2">
+                      <MicroTooltip
+                        content="Please do not eat the research material."
+                        position="top"
+                        soundType="eggHover"
+                      >
+                        <div
+                          onClick={handleEggClick}
+                          className={`cursor-pointer transition-transform duration-200 transform ${eggWobble ? 'animate-bounce' : 'hover:-translate-y-1 hover:rotate-3'}`}
+                          title="Egg Specimen #01"
+                        >
+                          <svg width="76" height="98" viewBox="0 0 76 98" fill="none" className="drop-shadow-md">
+                            <defs>
+                              <radialGradient id="heroEggGradStand" cx="36%" cy="32%" r="65%">
+                                <stop offset="0%" stopColor="#FFFFFF" />
+                                <stop offset="65%" stopColor="#FEF9E7" />
+                                <stop offset="100%" stopColor="#FDE68A" />
+                              </radialGradient>
+                            </defs>
+                            <ellipse cx="38" cy="94" rx="30" ry="4" fill="#78350F" fillOpacity="0.15" />
+                            <path
+                              d="M 38 4 C 18 4 6 34 6 64 C 6 82 20 92 38 92 C 56 92 70 82 70 64 C 70 34 58 4 38 4 Z"
+                              fill="url(#heroEggGradStand)"
+                              stroke="#EAB308"
+                              strokeWidth="2"
+                            />
+                            <circle cx="30" cy="58" r="14" fill="#FACC15" fillOpacity="0.4" stroke="#EAB308" strokeWidth="1" strokeDasharray="3 3" />
+                            <circle cx="48" cy="50" r="12" fill="#F59E0B" fillOpacity="0.4" stroke="#D97706" strokeWidth="1" strokeDasharray="3 3" />
+                            <rect x="22" y="70" width="32" height="12" rx="2" fill="#78350F" fillOpacity="0.85" />
+                            <text x="38" y="79" textAnchor="middle" fill="#FEF3C7" fontSize="8" fontWeight="bold" fontFamily="monospace">
+                              2-YOLK?
+                            </text>
+                          </svg>
+                        </div>
+                      </MicroTooltip>
+                      <div className="text-[10px] font-semibold text-center text-amber-700 mt-1 font-mono">
+                        Hover/click egg 🥚
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 pt-3 border-t border-amber-100 grid grid-cols-3 gap-2 text-center font-mono">
+                    <div className="bg-amber-50/70 p-2 rounded-xl border border-amber-200/50">
+                      <div className="text-[9px] text-amber-700/80 uppercase">Target Yolk</div>
+                      <div className="text-sm font-bold text-amber-950">2 (Twin)</div>
+                    </div>
+                    <div className="bg-amber-50/70 p-2 rounded-xl border border-amber-200/50">
+                      <div className="text-[9px] text-amber-700/80 uppercase">Coin Ref</div>
+                      <div className="text-sm font-bold text-amber-950">₹10 (Pt 3)</div>
+                    </div>
+                    <div className="bg-amber-50/70 p-2 rounded-xl border border-amber-200/50">
+                      <div className="text-[9px] text-amber-700/80 uppercase">Scientific Rigor</div>
+                      <div className="text-sm font-bold text-emerald-700">100%</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            {/* Bottom roadmap cards */}
+            <div className="mt-12 sm:mt-16 grid grid-cols-1 sm:grid-cols-3 gap-4 lg:gap-6">
+              <div className="bg-[#FFFDF7]/80 rounded-2xl p-5 border border-amber-200/80 shadow-xs hover:border-amber-400 transition-colors">
+                <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center text-amber-900 mb-3 text-lg font-bold">📷</div>
+                <h2 className="text-sm font-bold text-amber-950 font-serif">Part 2: Optical Calibration</h2>
+                <p className="mt-1 text-xs text-amber-800/80 leading-relaxed">Camera pipeline & bounding box contour detection for dual yolks.</p>
+              </div>
+
+              <div className="bg-[#FFFDF7]/80 rounded-2xl p-5 border border-amber-200/80 shadow-xs hover:border-amber-400 transition-colors">
+                <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center text-amber-900 mb-3 text-lg font-bold">🪙</div>
+                <h2 className="text-sm font-bold text-amber-950 font-serif">Part 3: Virtual ₹10 Standard</h2>
+                <p className="mt-1 text-xs text-amber-800/80 leading-relaxed">Sub-millimeter scale comparison using the definitive ₹10 Indian coin benchmark.</p>
+              </div>
+
+              <div className="bg-[#FFFDF7]/80 rounded-2xl p-5 border border-amber-200/80 shadow-xs hover:border-amber-400 transition-colors">
+                <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center text-amber-900 mb-3 text-lg font-bold">📊</div>
+                <h2 className="text-sm font-bold text-amber-950 font-serif">Part 4–8: Future Frontiers</h2>
+                <p className="mt-1 text-xs text-amber-800/80 leading-relaxed">Yolk symmetry, chicken victory dance, leaderboard, and the Clicker Trap.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // ==========================================
+    // 8. PLACEHOLDER VIEW COMPONENT
+    // ==========================================
+    const PlaceholderView = ({ tab, onBackToHome }) => {
+      const handleBack = () => {
+        soundManager.play('pop');
+        onBackToHome();
+      };
+
+      const getContent = () => {
+        if (tab === 'analyze') {
+          return {
+            title: 'Laboratory Bay Under Calibration',
+            subtitle: 'Part 2: Optical Calibration & Bounding Box AI',
+            badge: 'Scheduled for Part 2',
+            mascotExpr: 'squint',
+            mascotPose: 'measuring',
+            description: 'Our senior poultry metrologists are currently calibrating the digital calipers. The specimen tray is being sterilized to ISO-002 double-yolk standards.',
+            joke: '“Please do not attempt to crack real eggs onto your screen in the meantime.”',
+            details: [
+              'Camera & file upload pipeline',
+              'Sub-millimeter yolk contour segmentation',
+              'Authentic ₹10 coin reference baseline',
+              'Confidence score algorithm',
+            ],
+          };
+        }
+        if (tab === 'leaderboard') {
+          return {
+            title: 'Solemn Double-Yolk Hall of Fame',
+            subtitle: 'Part 6: Local Leaderboard & Peer Review Registry',
+            badge: 'Scheduled for Part 6',
+            mascotExpr: 'serious',
+            mascotPose: 'clipboard',
+            description: 'The global double-yolk archives are currently locked in a climate-controlled poultry safe. Only certified twins with verifiable photographic evidence will be inducted.',
+            joke: '“Every record here has been vigorously peer-reviewed by at least one suspicious chicken.”',
+            details: [
+              'Local storage record persistence',
+              'Yolk diameter variance rankings',
+              'Sphericity excellence awards',
+              'Hall of Fame export & badges',
+            ],
+          };
+        }
+        if (tab === 'game') {
+          return {
+            title: 'Poultry Training Grounds',
+            subtitle: 'Part 7: The Chicken Clicker Trap',
+            badge: 'Scheduled for Part 7',
+            mascotExpr: 'determined',
+            mascotPose: 'holding-racket',
+            description: 'The chickens are currently performing shuttle runs and mental math to prepare for the clicker challenge. Approach at your own risk.',
+            joke: '“Side effects of this game may include an irrational urge to inspect your breakfast.”',
+            details: [
+              'Precision egg catching',
+              'Reflex-based yolk sorting',
+              'High-velocity egg traps',
+              'Absurd bonus multipliers',
+            ],
+          };
+        }
+        return {
+          title: 'The UNNIMUTTA Manifesto',
+          subtitle: 'An Unnecessarily Serious Student Research Undertaking',
+          badge: 'Academic Abstract',
+          mascotExpr: 'serious',
+          mascotPose: 'idle',
+          description: 'UNNIMUTTA was conceived under the profound hypothesis that humanity takes single-yolk eggs for granted, yet fails to apply rigorous scientific scrutiny to the miracle of double-yolks. Why leave twin yolk measurement to culinary chance when we have digital metrology?',
+          joke: '“Founded by students who spent way too long debating egg yolk symmetry at 2:00 AM.”',
+          details: [
+            '100% Unnecessary Scientific Depth',
+            'Proprietary Yellow + Warm Cream Aesthetic',
+            'Zero tolerance for yolk misclassification',
+            'Built with React, TypeScript & Passion',
+          ],
+        };
+      };
+
+      const content = getContent();
+
+      return (
+        <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center p-4 sm:p-8">
+          <div className="max-w-2xl w-full bg-[#FFFDF7] border-2 border-amber-200/90 rounded-3xl p-6 sm:p-10 shadow-xl shadow-amber-900/5 text-center">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 text-amber-900 border border-amber-300 text-xs font-mono font-semibold uppercase tracking-wider mb-4">
+              <span>🔬</span>
+              <span>{content.badge}</span>
+            </div>
+
+            <div className="flex justify-center my-4">
+              <ChickMascot size={140} expression={content.mascotExpr} pose={content.mascotPose} showShadow={true} />
+            </div>
+
+            <h2 className="text-2xl sm:text-3xl font-extrabold text-amber-950 font-serif">{content.title}</h2>
+            <p className="mt-1 text-sm font-semibold text-amber-800/80">{content.subtitle}</p>
+
+            <p className="mt-4 text-sm sm:text-base text-amber-900/80 max-w-lg mx-auto leading-relaxed">{content.description}</p>
+
+            <div className="my-5 p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-xs italic text-amber-800/90 font-medium">
+              {content.joke}
+            </div>
+
+            <div className="mt-6 pt-5 border-t border-amber-100 text-left">
+              <div className="text-xs font-bold uppercase tracking-wider text-amber-900 mb-2.5 font-mono">
+                Key Specifications in this Module:
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {content.details.map((detail, idx) => (
+                  <div key={idx} className="flex items-center gap-2 text-xs text-amber-900/80 bg-white p-2 rounded-xl border border-amber-200/60">
+                    <span className="text-amber-500 font-bold">✓</span>
+                    <span>{detail}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-8">
+              <button
+                onClick={handleBack}
+                className="inline-flex items-center gap-2 px-6 py-2.5 rounded-2xl bg-amber-900 hover:bg-amber-800 text-amber-50 text-sm font-bold shadow-md transition-all transform hover:scale-105 active:scale-95"
+              >
+                <span>←</span>
+                <span>Return to Main Laboratory</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // ==========================================
+    // 8.5 PART 2: IMAGE INPUT & YOLK SELECTION
+    // ==========================================
+
+    const specimen1Svg = `data:image/svg+xml;utf8,${encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600">
+  <defs>
+    <radialGradient id="dishGrad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="85%" stop-color="#F8FAFC" />
+      <stop offset="100%" stop-color="#E2E8F0" />
+    </radialGradient>
+    <radialGradient id="albumenGrad" cx="45%" cy="45%" r="55%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.85" />
+      <stop offset="50%" stop-color="#FEF08A" stop-opacity="0.35" />
+      <stop offset="90%" stop-color="#FDE047" stop-opacity="0.15" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.05" />
+    </radialGradient>
+    <radialGradient id="yolk1Grad" cx="38%" cy="36%" r="62%">
+      <stop offset="0%" stop-color="#FFFBEB" />
+      <stop offset="25%" stop-color="#FDE047" />
+      <stop offset="70%" stop-color="#F59E0B" />
+      <stop offset="100%" stop-color="#D97706" />
+    </radialGradient>
+    <radialGradient id="yolk2Grad" cx="38%" cy="36%" r="62%">
+      <stop offset="0%" stop-color="#FFFBEB" />
+      <stop offset="25%" stop-color="#FBBF24" />
+      <stop offset="70%" stop-color="#EA580C" />
+      <stop offset="100%" stop-color="#C2410C" />
+    </radialGradient>
+    <filter id="yolkDropShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="2" dy="5" stdDeviation="4" flood-opacity="0.25" flood-color="#78350F" />
+    </filter>
+  </defs>
+  <rect width="800" height="600" fill="#F1F5F9" />
+  <ellipse cx="400" cy="300" rx="350" ry="250" fill="url(#dishGrad)" stroke="#CBD5E1" stroke-width="4" />
+  <ellipse cx="400" cy="300" rx="320" ry="225" fill="#FFFFFF" fill-opacity="0.6" />
+  <path d="M 220 280 C 180 230, 240 160, 340 150 C 440 140, 560 170, 600 230 C 640 290, 620 380, 550 430 C 480 480, 360 470, 280 430 C 200 390, 260 330, 220 280 Z"
+        fill="url(#albumenGrad)" stroke="#FEF08A" stroke-width="1.5" />
+  <g filter="url(#yolkDropShadow)">
+    <circle cx="340" cy="300" r="70" fill="url(#yolk1Grad)" stroke="#D97706" stroke-width="2" />
+    <ellipse cx="320" cy="275" rx="16" ry="9" fill="#FFFFFF" fill-opacity="0.65" transform="rotate(-20 320 275)" />
+    <circle cx="310" cy="290" r="4" fill="#FFFFFF" fill-opacity="0.5" />
+  </g>
+  <g filter="url(#yolkDropShadow)">
+    <circle cx="480" cy="295" r="67" fill="url(#yolk2Grad)" stroke="#C2410C" stroke-width="2" />
+    <ellipse cx="462" cy="270" rx="15" ry="8" fill="#FFFFFF" fill-opacity="0.65" transform="rotate(-20 462 270)" />
+    <circle cx="452" cy="285" r="3.5" fill="#FFFFFF" fill-opacity="0.5" />
+  </g>
+  <path d="M 270 300 Q 250 310 230 305" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-opacity="0.8" />
+  <path d="M 550 295 Q 570 305 590 295" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-opacity="0.8" />
+  <text x="400" y="550" text-anchor="middle" fill="#94A3B8" font-family="monospace" font-size="14" font-weight="bold">
+    LAB SPECIMEN #A1: BALANCED TWIN YOLKS (~38mm)
+  </text>
+</svg>
+`)}`;
+
+    const specimen2Svg = `data:image/svg+xml;utf8,${encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600">
+  <defs>
+    <radialGradient id="yolkA" cx="38%" cy="36%" r="62%">
+      <stop offset="0%" stop-color="#FFFBEB" />
+      <stop offset="30%" stop-color="#FCD34D" />
+      <stop offset="75%" stop-color="#F59E0B" />
+      <stop offset="100%" stop-color="#B45309" />
+    </radialGradient>
+    <radialGradient id="yolkB" cx="38%" cy="36%" r="62%">
+      <stop offset="0%" stop-color="#FFFBEB" />
+      <stop offset="30%" stop-color="#FB923C" />
+      <stop offset="75%" stop-color="#EA580C" />
+      <stop offset="100%" stop-color="#9A3412" />
+    </radialGradient>
+    <filter id="drop2" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="2" dy="5" stdDeviation="4" flood-opacity="0.25" flood-color="#78350F" />
+    </filter>
+  </defs>
+  <rect width="800" height="600" fill="#F8FAFC" />
+  <circle cx="400" cy="300" r="260" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="4" />
+  <path d="M 230 270 C 200 200, 300 150, 410 160 C 520 170, 610 220, 590 320 C 570 420, 470 460, 370 440 C 270 420, 260 340, 230 270 Z"
+        fill="#FEF3C7" fill-opacity="0.4" stroke="#FDE68A" stroke-width="2" />
+  <g filter="url(#drop2)">
+    <circle cx="330" cy="290" r="82" fill="url(#yolkA)" stroke="#B45309" stroke-width="2" />
+    <ellipse cx="305" cy="260" rx="18" ry="10" fill="#FFFFFF" fill-opacity="0.7" transform="rotate(-15 305 260)" />
+  </g>
+  <g filter="url(#drop2)">
+    <circle cx="485" cy="310" r="54" fill="url(#yolkB)" stroke="#9A3412" stroke-width="2" />
+    <ellipse cx="470" cy="290" rx="12" ry="7" fill="#FFFFFF" fill-opacity="0.7" transform="rotate(-15 470 290)" />
+  </g>
+  <text x="400" y="550" text-anchor="middle" fill="#94A3B8" font-family="monospace" font-size="14" font-weight="bold">
+    LAB SPECIMEN #B2: ASYMMETRIC TWINS (HIGH DISPARITY)
+  </text>
+</svg>
+`)}`;
+
+    const specimen3Svg = `data:image/svg+xml;utf8,${encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600">
+  <defs>
+    <radialGradient id="brassRef" cx="40%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#FDE68A" />
+      <stop offset="60%" stop-color="#D97706" />
+      <stop offset="100%" stop-color="#78350F" />
+    </radialGradient>
+    <radialGradient id="nickelRef" cx="35%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="45%" stop-color="#E2E8F0" />
+      <stop offset="85%" stop-color="#94A3B8" />
+      <stop offset="100%" stop-color="#475569" />
+    </radialGradient>
+    <radialGradient id="yolkGradC1" cx="38%" cy="36%" r="62%">
+      <stop offset="0%" stop-color="#FFFBEB" />
+      <stop offset="30%" stop-color="#FDE047" />
+      <stop offset="70%" stop-color="#F59E0B" />
+      <stop offset="100%" stop-color="#D97706" />
+    </radialGradient>
+    <radialGradient id="yolkGradC2" cx="38%" cy="36%" r="62%">
+      <stop offset="0%" stop-color="#FFFBEB" />
+      <stop offset="30%" stop-color="#FBBF24" />
+      <stop offset="70%" stop-color="#EA580C" />
+      <stop offset="100%" stop-color="#C2410C" />
+    </radialGradient>
+    <filter id="drop3" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="2" dy="5" stdDeviation="4" flood-opacity="0.25" flood-color="#78350F" />
+    </filter>
+  </defs>
+  <rect width="800" height="600" fill="#E2E8F0" />
+  <ellipse cx="400" cy="300" rx="360" ry="260" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="4" />
+  <path d="M 240 280 C 200 210, 300 160, 420 170 C 540 180, 620 250, 580 350 C 540 430, 400 450, 300 420 C 230 380, 280 330, 240 280 Z"
+        fill="#FEF08A" fill-opacity="0.3" stroke="#FDE68A" stroke-width="2" />
+  <g filter="url(#drop3)">
+    <circle cx="360" cy="290" r="68" fill="url(#yolkGradC1)" stroke="#D97706" stroke-width="2" />
+    <ellipse cx="340" cy="265" rx="16" ry="9" fill="#FFFFFF" fill-opacity="0.65" transform="rotate(-20 340 265)" />
+  </g>
+  <g filter="url(#drop3)">
+    <circle cx="500" cy="295" r="66" fill="url(#yolkGradC2)" stroke="#C2410C" stroke-width="2" />
+    <ellipse cx="482" cy="270" rx="15" ry="8" fill="#FFFFFF" fill-opacity="0.65" transform="rotate(-20 482 270)" />
+  </g>
+  <!-- Real in-photo ₹10 Coin reference -->
+  <g filter="url(#drop3)">
+    <circle cx="170" cy="300" r="48" fill="url(#brassRef)" stroke="#78350F" stroke-width="1.5" />
+    <circle cx="170" cy="300" r="32" fill="url(#nickelRef)" stroke="#92400E" stroke-width="1" />
+    <text x="170" y="295" text-anchor="middle" fill="#0F172A" font-size="16" font-weight="900" font-family="sans-serif">₹10</text>
+    <text x="170" y="312" text-anchor="middle" fill="#334155" font-size="7" font-weight="bold" font-family="monospace">27.0mm</text>
+    <text x="170" y="323" text-anchor="middle" fill="#475569" font-size="5.5" font-family="sans-serif">PHYSICAL REF</text>
+  </g>
+  <text x="400" y="555" text-anchor="middle" fill="#64748B" font-family="monospace" font-size="13" font-weight="bold">
+    LAB SPECIMEN #C3: CALIBRATED BENCHMARK WITH IN-PHOTO ₹10 COIN
+  </text>
+</svg>
+`)}`;
+
+    const SAMPLE_SPECIMENS = [
+      { id: 'sample-1', name: 'Balanced Dual Yolks', badge: 'Specimen #A1', imageUrl: specimen1Svg },
+      { id: 'sample-2', name: 'Asymmetric Twin Yolks', badge: 'Specimen #B2', imageUrl: specimen2Svg },
+      { id: 'sample-3', name: 'In-Photo ₹10 Coin Benchmark', badge: 'Specimen #C3', imageUrl: specimen3Svg },
+    ];
+
+    // --- Coin Reference Component ---
+    const CoinReference = ({ coin, scale, pan, isActive, onUpdate, onSelect }) => {
+      const isDraggingRef = useRef(false);
+      const dragStartRef = useRef({ x: 0, y: 0, coinX: 0, coinY: 0 });
+      const isResizingRef = useRef(false);
+      const resizeStartRef = useRef({ x: 0, y: 0, startDiameter: 0 });
+
+      const screenX = pan.x + coin.x * scale;
+      const screenY = pan.y + coin.y * scale;
+      const screenDiameter = Math.max(24, coin.diameterPx * scale);
+      const radius = screenDiameter / 2;
+
+      const handlePointerDown = (e) => {
+        e.stopPropagation();
+        onSelect();
+        isDraggingRef.current = true;
+        dragStartRef.current = { x: e.clientX, y: e.clientY, coinX: coin.x, coinY: coin.y };
+        e.target.setPointerCapture?.(e.pointerId);
+      };
+
+      const handlePointerMove = (e) => {
+        if (isDraggingRef.current) {
+          e.stopPropagation();
+          const dx = (e.clientX - dragStartRef.current.x) / scale;
+          const dy = (e.clientY - dragStartRef.current.y) / scale;
+          onUpdate({ x: dragStartRef.current.coinX + dx, y: dragStartRef.current.coinY + dy });
+        } else if (isResizingRef.current) {
+          e.stopPropagation();
+          const dx = e.clientX - resizeStartRef.current.x;
+          const dy = e.clientY - resizeStartRef.current.y;
+          const distDelta = Math.sqrt(dx * dx + dy * dy) * (dx > 0 || dy > 0 ? 1 : -1);
+          const newDiameter = Math.max(30, Math.min(600, resizeStartRef.current.startDiameter + distDelta / scale));
+          onUpdate({ diameterPx: Math.round(newDiameter) });
+        }
+      };
+
+      const handlePointerUp = (e) => {
+        if (isDraggingRef.current || isResizingRef.current) {
+          e.stopPropagation();
+          isDraggingRef.current = false;
+          isResizingRef.current = false;
+          try { e.target.releasePointerCapture?.(e.pointerId); } catch(err) {}
+        }
+      };
+
+      const handleResizeStart = (e) => {
+        e.stopPropagation();
+        isResizingRef.current = true;
+        resizeStartRef.current = { x: e.clientX, y: e.clientY, startDiameter: coin.diameterPx };
+        e.target.setPointerCapture?.(e.pointerId);
+      };
+
+      return (
+        <div
+          className="absolute select-none group touch-none"
+          style={{
+            left: `${screenX - radius}px`,
+            top: `${screenY - radius}px`,
+            width: `${screenDiameter}px`,
+            height: `${screenDiameter}px`,
+            zIndex: isActive ? 25 : 20,
+          }}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+        >
+          <div
+            className={`absolute inset-0 rounded-full transition-all duration-200 pointer-events-none ${
+              isActive
+                ? 'ring-4 ring-amber-400 ring-offset-2 ring-offset-amber-900/20 shadow-lg shadow-amber-500/40'
+                : 'ring-1 ring-amber-500/40 group-hover:ring-2 group-hover:ring-amber-400'
+            }`}
+          />
+          <svg viewBox="0 0 100 100" className="w-full h-full cursor-grab active:cursor-grabbing drop-shadow-md">
+            <defs>
+              <radialGradient id="brassRingLive" cx="40%" cy="40%" r="60%">
+                <stop offset="0%" stopColor="#FDE68A" />
+                <stop offset="60%" stopColor="#D97706" />
+                <stop offset="100%" stopColor="#92400E" />
+              </radialGradient>
+              <radialGradient id="nickelCoreLive" cx="35%" cy="35%" r="65%">
+                <stop offset="0%" stopColor="#FFFFFF" />
+                <stop offset="45%" stopColor="#E2E8F0" />
+                <stop offset="85%" stopColor="#94A3B8" />
+                <stop offset="100%" stopColor="#64748B" />
+              </radialGradient>
+            </defs>
+            <circle cx="50" cy="50" r="48" fill="url(#brassRingLive)" stroke="#78350F" strokeWidth="1.5" />
+            {[...Array(10)].map((_, i) => {
+              const angle = (i * 36 * Math.PI) / 180;
+              return (
+                <line
+                  key={i}
+                  x1={50 + 44 * Math.cos(angle)}
+                  y1={50 + 44 * Math.sin(angle)}
+                  x2={50 + 39 * Math.cos(angle)}
+                  y2={50 + 39 * Math.sin(angle)}
+                  stroke="#B45309"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+              );
+            })}
+            <circle cx="50" cy="50" r="32" fill="url(#nickelCoreLive)" stroke="#B45309" strokeWidth="1.5" />
+            <circle cx="50" cy="50" r="30.5" fill="none" stroke="#CBD5E1" strokeWidth="0.8" strokeDasharray="1 2" />
+            <text x="50" y="42" textAnchor="middle" fill="#1E293B" fontSize="17" fontWeight="900" fontFamily="system-ui, sans-serif">
+              ₹10
+            </text>
+            <text x="50" y="56" textAnchor="middle" fill="#475569" fontSize="7.5" fontWeight="bold" fontFamily="monospace">
+              27.0 mm
+            </text>
+            <text x="50" y="68" textAnchor="middle" fill="#334155" fontSize="6" fontWeight="600" fontFamily="sans-serif">
+              REF SCALE
+            </text>
+          </svg>
+
+          {isActive && (
+            <div
+              className="absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-5 h-5 bg-amber-400 border-2 border-amber-950 rounded-full cursor-ew-resize flex items-center justify-center shadow-md hover:scale-125 transition-transform"
+              title="Drag to resize ₹10 reference coin"
+              onPointerDown={handleResizeStart}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+            >
+              <span className="text-[9px] font-bold text-amber-950 leading-none">↔</span>
+            </div>
+          )}
+
+          <div
+            className={`absolute left-1/2 -bottom-7 transform -translate-x-1/2 whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-mono font-bold transition-all pointer-events-none ${
+              isActive ? 'bg-amber-950 text-amber-300 ring-1 ring-amber-400' : 'bg-amber-900/80 text-amber-100'
+            }`}
+          >
+            ₹10 Ref: {coin.diameterPx}px (27.0mm)
+          </div>
+        </div>
+      );
+    };
+
+    // --- Yolk Caliper Component ---
+    const YolkCaliper = ({ yolk, scale, pan, isActive, mmPerPixel, onUpdate, onSelect }) => {
+      const isDraggingRef = useRef(false);
+      const dragStartRef = useRef({ x: 0, y: 0, yolkX: 0, yolkY: 0 });
+      const isResizingRef = useRef(false);
+      const resizeStartRef = useRef({ x: 0, y: 0, startRadius: 0 });
+
+      const screenX = pan.x + yolk.x * scale;
+      const screenY = pan.y + yolk.y * scale;
+      const screenRadius = Math.max(12, yolk.radius * scale);
+      const screenDiameter = screenRadius * 2;
+      const diameterMm = (yolk.radius * 2 * mmPerPixel).toFixed(1);
+
+      const isYolk1 = yolk.id === 'yolk1';
+      const primaryColor = isYolk1 ? '#F59E0B' : '#EA580C';
+      const bgBadgeColor = isYolk1 ? 'bg-amber-500' : 'bg-orange-600';
+
+      const handlePointerDown = (e) => {
+        e.stopPropagation();
+        onSelect();
+        isDraggingRef.current = true;
+        dragStartRef.current = { x: e.clientX, y: e.clientY, yolkX: yolk.x, yolkY: yolk.y };
+        e.target.setPointerCapture?.(e.pointerId);
+      };
+
+      const handlePointerMove = (e) => {
+        if (isDraggingRef.current) {
+          e.stopPropagation();
+          const dx = (e.clientX - dragStartRef.current.x) / scale;
+          const dy = (e.clientY - dragStartRef.current.y) / scale;
+          onUpdate({ x: dragStartRef.current.yolkX + dx, y: dragStartRef.current.yolkY + dy });
+        } else if (isResizingRef.current) {
+          e.stopPropagation();
+          const dx = e.clientX - resizeStartRef.current.x;
+          const dy = e.clientY - resizeStartRef.current.y;
+          const delta = Math.sqrt(dx * dx + dy * dy) * (dx > 0 || dy > 0 ? 1 : -1);
+          const newRadius = Math.max(10, Math.min(400, resizeStartRef.current.startRadius + delta / scale));
+          onUpdate({ radius: Math.round(newRadius) });
+        }
+      };
+
+      const handlePointerUp = (e) => {
+        if (isDraggingRef.current || isResizingRef.current) {
+          e.stopPropagation();
+          isDraggingRef.current = false;
+          isResizingRef.current = false;
+          try { e.target.releasePointerCapture?.(e.pointerId); } catch(err) {}
+        }
+      };
+
+      const handleResizeStart = (e) => {
+        e.stopPropagation();
+        onSelect();
+        isResizingRef.current = true;
+        resizeStartRef.current = { x: e.clientX, y: e.clientY, startRadius: yolk.radius };
+        e.target.setPointerCapture?.(e.pointerId);
+      };
+
+      return (
+        <div
+          className="absolute select-none group touch-none"
+          style={{
+            left: `${screenX - screenRadius}px`,
+            top: `${screenY - screenRadius}px`,
+            width: `${screenDiameter}px`,
+            height: `${screenDiameter}px`,
+            zIndex: isActive ? 24 : 18,
+          }}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+        >
+          <svg viewBox={`0 0 ${screenDiameter} ${screenDiameter}`} className="w-full h-full cursor-move">
+            <circle
+              cx={screenRadius}
+              cy={screenRadius}
+              r={screenRadius - 2}
+              fill={isActive ? (isYolk1 ? 'rgba(245, 158, 11, 0.18)' : 'rgba(234, 88, 12, 0.18)') : 'rgba(0, 0, 0, 0.04)'}
+              stroke={primaryColor}
+              strokeWidth={isActive ? 2.5 : 1.5}
+              strokeDasharray={isActive ? 'none' : '4 3'}
+            />
+            {isActive && (
+              <circle
+                cx={screenRadius}
+                cy={screenRadius}
+                r={screenRadius + 4}
+                fill="none"
+                stroke={primaryColor}
+                strokeWidth="1.5"
+                strokeDasharray="2 4"
+                className="animate-pulse"
+              />
+            )}
+            <circle cx={screenRadius} cy={screenRadius} r={3.5} fill={primaryColor} />
+            <line x1={screenRadius - 10} y1={screenRadius} x2={screenRadius + 10} y2={screenRadius} stroke={primaryColor} strokeWidth="1.5" />
+            <line x1={screenRadius} y1={screenRadius - 10} x2={screenRadius} y2={screenRadius + 10} stroke={primaryColor} strokeWidth="1.5" />
+            <line x1={2} y1={screenRadius} x2={screenDiameter - 2} y2={screenRadius} stroke={primaryColor} strokeWidth="1" strokeDasharray="3 3" strokeOpacity="0.7" />
+          </svg>
+
+          {isActive && (
+            <div
+              className="absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-5 h-5 bg-white rounded-full border-2 cursor-ew-resize flex items-center justify-center shadow-lg hover:scale-125 transition-transform"
+              style={{ borderColor: primaryColor }}
+              title={`Drag to adjust ${yolk.name} boundary`}
+              onPointerDown={handleResizeStart}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+            >
+              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: primaryColor }} />
+            </div>
+          )}
+
+          <div
+            className={`absolute left-1/2 -top-8 transform -translate-x-1/2 whitespace-nowrap px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold transition-all pointer-events-none flex items-center gap-1.5 shadow-md ${
+              isActive ? `${bgBadgeColor} text-white ring-2 ring-white` : 'bg-amber-950/80 text-amber-200'
+            }`}
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+            <span>{yolk.name}</span>
+            {isActive && <span className="text-[9px] uppercase px-1 py-0.2 bg-black/20 rounded">Active</span>}
+          </div>
+
+          <div
+            className={`absolute left-1/2 -bottom-7 transform -translate-x-1/2 whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-mono font-bold pointer-events-none ${
+              isActive ? 'bg-amber-950 text-white border border-amber-400' : 'bg-black/60 text-white/90'
+            }`}
+          >
+            Ø {yolk.radius * 2}px ({diameterMm} mm)
+          </div>
+        </div>
+      );
+    };
+
+    // --- Measurement Workspace Component ---
+    const MeasurementWorkspace = ({
+      imageSrc,
+      imageDimensions,
+      coin,
+      yolks,
+      activeYolkId,
+      activeItem,
+      onUpdateCoin,
+      onUpdateYolk,
+      onSelectYolk,
+      onSelectCoin,
+      onSelectWorkspace,
+    }) => {
+      const containerRef = useRef(null);
+      const [scale, setScale] = useState(1.0);
+      const [pan, setPan] = useState({ x: 0, y: 0 });
+      const isPanningRef = useRef(false);
+      const panStartRef = useRef({ x: 0, y: 0, initialPanX: 0, initialPanY: 0 });
+
+      const mmPerPixel = 27.0 / (coin.diameterPx || 100);
+
+      useEffect(() => {
+        if (containerRef.current && imageDimensions) {
+          const containerW = containerRef.current.clientWidth;
+          const containerH = containerRef.current.clientHeight;
+          const initialScale = Math.min(
+            1.0,
+            (containerW * 0.85) / imageDimensions.width,
+            (containerH * 0.85) / imageDimensions.height
+          );
+          setScale(Number(initialScale.toFixed(2)) || 1.0);
+          setPan({
+            x: (containerW - imageDimensions.width * initialScale) / 2,
+            y: (containerH - imageDimensions.height * initialScale) / 2,
+          });
+        }
+      }, [imageDimensions]);
+
+      const handleZoomIn = () => setScale((prev) => Math.min(4.0, Number((prev + 0.15).toFixed(2))));
+      const handleZoomOut = () => setScale((prev) => Math.max(0.2, Number((prev - 0.15).toFixed(2))));
+      const handleResetZoom = () => {
+        if (containerRef.current && imageDimensions) {
+          const containerW = containerRef.current.clientWidth;
+          const containerH = containerRef.current.clientHeight;
+          const initialScale = Math.min(
+            1.0,
+            (containerW * 0.85) / imageDimensions.width,
+            (containerH * 0.85) / imageDimensions.height
+          );
+          setScale(Number(initialScale.toFixed(2)) || 1.0);
+          setPan({
+            x: (containerW - imageDimensions.width * initialScale) / 2,
+            y: (containerH - imageDimensions.height * initialScale) / 2,
+          });
+        } else {
+          setScale(1.0);
+          setPan({ x: 0, y: 0 });
+        }
+      };
+
+      const handleWheel = (e) => {
+        e.preventDefault();
+        const zoomFactor = e.deltaY < 0 ? 1.08 : 0.92;
+        setScale((prev) => Math.max(0.2, Math.min(4.0, Number((prev * zoomFactor).toFixed(2)))));
+      };
+
+      const handlePointerDown = (e) => {
+        if (e.target.closest('[data-interactive="true"]')) return;
+        onSelectWorkspace();
+        isPanningRef.current = true;
+        panStartRef.current = { x: e.clientX, y: e.clientY, initialPanX: pan.x, initialPanY: pan.y };
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+      };
+
+      const handlePointerMove = (e) => {
+        if (isPanningRef.current) {
+          const dx = e.clientX - panStartRef.current.x;
+          const dy = e.clientY - panStartRef.current.y;
+          setPan({ x: panStartRef.current.initialPanX + dx, y: panStartRef.current.initialPanY + dy });
+        }
+      };
+
+      const handlePointerUp = (e) => {
+        if (isPanningRef.current) {
+          isPanningRef.current = false;
+          try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch(err) {}
+        }
+      };
+
+      return (
+        <div className="relative w-full h-[520px] sm:h-[600px] rounded-3xl overflow-hidden border-2 border-amber-300/80 bg-[#1C1917] shadow-xl select-none">
+          <div
+            className="absolute inset-0 pointer-events-none opacity-25"
+            style={{
+              backgroundImage: 'linear-gradient(to right, #44403C 1px, transparent 1px), linear-gradient(to bottom, #44403C 1px, transparent 1px)',
+              backgroundSize: '20px 20px',
+            }}
+          />
+
+          <div className="absolute top-4 right-4 z-30 flex items-center gap-1.5 bg-amber-950/90 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-amber-400/40 shadow-lg text-white">
+            <span className="text-[11px] font-mono font-bold text-amber-300 pr-1">{Math.round(scale * 100)}%</span>
+            <button onClick={handleZoomIn} className="w-8 h-8 rounded-xl bg-amber-500/20 hover:bg-amber-400 hover:text-amber-950 flex items-center justify-center text-base font-bold transition-all" title="Zoom In (+)">+</button>
+            <button onClick={handleZoomOut} className="w-8 h-8 rounded-xl bg-amber-500/20 hover:bg-amber-400 hover:text-amber-950 flex items-center justify-center text-base font-bold transition-all" title="Zoom Out (−)">−</button>
+            <button onClick={handleResetZoom} className="px-2.5 h-8 rounded-xl bg-amber-500/20 hover:bg-amber-400 hover:text-amber-950 text-xs font-semibold flex items-center gap-1 transition-all" title="Reset Zoom View">
+              <span>↺</span>
+              <span className="hidden sm:inline">Reset</span>
+            </button>
+          </div>
+
+          <div className="absolute top-4 left-4 z-30 flex items-center gap-2 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-white/10 text-white text-xs font-mono">
+            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-white/80">Active Tool:</span>
+            <span className="font-bold text-amber-300 uppercase">
+              {activeItem === 'coin' ? '🪙 ₹10 Coin Ref' : activeItem === 'yolk1' ? '🥚 Yolk 1 (Alpha)' : activeItem === 'yolk2' ? '🥚 Yolk 2 (Beta)' : '✋ Pan Workspace'}
+            </span>
+          </div>
+
+          <div
+            ref={containerRef}
+            className="w-full h-full cursor-grab active:cursor-grabbing overflow-hidden relative"
+            onWheel={handleWheel}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+          >
+            {imageSrc ? (
+              <>
+                <div
+                  className="absolute pointer-events-none transition-transform origin-top-left"
+                  style={{
+                    transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
+                    width: imageDimensions ? `${imageDimensions.width}px` : 'auto',
+                    height: imageDimensions ? `${imageDimensions.height}px` : 'auto',
+                  }}
+                >
+                  <img
+                    src={imageSrc}
+                    alt="Specimen"
+                    className="max-w-none shadow-2xl rounded-lg border border-amber-500/20"
+                    style={{
+                      width: imageDimensions ? `${imageDimensions.width}px` : 'auto',
+                      height: imageDimensions ? `${imageDimensions.height}px` : 'auto',
+                      objectFit: 'contain',
+                    }}
+                  />
+                </div>
+
+                <div data-interactive="true">
+                  <CoinReference
+                    coin={coin}
+                    scale={scale}
+                    pan={pan}
+                    isActive={activeItem === 'coin'}
+                    onUpdate={onUpdateCoin}
+                    onSelect={onSelectCoin}
+                  />
+                </div>
+
+                <div data-interactive="true">
+                  <YolkCaliper
+                    yolk={yolks.yolk1}
+                    scale={scale}
+                    pan={pan}
+                    isActive={activeItem === 'yolk1' || activeYolkId === 'yolk1'}
+                    mmPerPixel={mmPerPixel}
+                    onUpdate={(upd) => onUpdateYolk('yolk1', upd)}
+                    onSelect={() => onSelectYolk('yolk1')}
+                  />
+                </div>
+
+                <div data-interactive="true">
+                  <YolkCaliper
+                    yolk={yolks.yolk2}
+                    scale={scale}
+                    pan={pan}
+                    isActive={activeItem === 'yolk2' || activeYolkId === 'yolk2'}
+                    mmPerPixel={mmPerPixel}
+                    onUpdate={(upd) => onUpdateYolk('yolk2', upd)}
+                    onSelect={() => onSelectYolk('yolk2')}
+                  />
+                </div>
+              </>
+            ) : (
+              <div className="w-full h-full flex flex-col items-center justify-center text-center p-8 text-amber-200/60 select-none">
+                <div className="w-20 h-20 rounded-3xl bg-amber-950/60 border-2 border-dashed border-amber-500/40 flex items-center justify-center text-3xl mb-4 animate-bounce">🥚</div>
+                <p className="text-lg font-bold text-amber-100 font-serif">Measurement Bay Empty</p>
+                <p className="text-xs text-amber-300/70 max-w-sm mt-1">Upload a cracked egg photograph containing twin yolks above.</p>
+              </div>
+            )}
+          </div>
+
+          <div className="absolute bottom-3 left-4 right-4 pointer-events-none flex items-center justify-between text-[11px] font-mono text-amber-200/80 bg-black/50 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/10">
+            <div className="flex items-center gap-3">
+              <span>Scale: 1px = {mmPerPixel.toFixed(3)}mm</span>
+              <span className="hidden sm:inline">•</span>
+              <span className="hidden sm:inline">Drag image to pan, scroll to zoom</span>
+            </div>
+            <div className="text-amber-400 font-bold">
+              {coin.isCalibratedToImage ? '✓ Calibrated to In-Photo Coin' : '⚠ Relative Virtual Reference'}
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // --- Comparison Panel Component ---
+    const ComparisonPanel = ({ yolk1, yolk2, coin, onResetAnalysis }) => {
+      const [copied, setCopied] = useState(false);
+      const mmPerPx = 27.0 / (coin.diameterPx || 100);
+
+      const d1Px = yolk1.radius * 2;
+      const d2Px = yolk2.radius * 2;
+      const d1Mm = d1Px * mmPerPx;
+      const d2Mm = d2Px * mmPerPx;
+      const diffMm = Math.abs(d1Mm - d2Mm);
+      const maxD = Math.max(d1Mm, d2Mm);
+      const minD = Math.min(d1Mm, d2Mm);
+      const symmetryPercent = maxD > 0 ? (minD / maxD) * 100 : 100;
+
+      const r1Cm = (d1Mm / 2) / 10;
+      const r2Cm = (d2Mm / 2) / 10;
+      const vol1Ml = (4 / 3) * Math.PI * Math.pow(r1Cm, 3);
+      const vol2Ml = (4 / 3) * Math.PI * Math.pow(r2Cm, 3);
+
+      const dominantYolk = d1Mm > d2Mm ? 'Yolk 1 (Alpha)' : d2Mm > d1Mm ? 'Yolk 2 (Beta)' : 'Identical Twins';
+
+      let chickSpeech = "Remarkable specimens. Peer review awaits.";
+      let chickExpr = 'serious';
+
+      if (symmetryPercent > 95) {
+        chickSpeech = `Astonishing symmetry! ${symmetryPercent.toFixed(1)}% twin parity. Rare equilibrium.`;
+        chickExpr = 'celebrating';
+      } else if (diffMm > 8) {
+        chickSpeech = `Unusual disparity! ${dominantYolk} dominates by ${diffMm.toFixed(1)} mm. Fascinating.`;
+        chickExpr = 'shocked';
+      } else {
+        chickSpeech = `Specimens confirmed. Delta of ${diffMm.toFixed(1)} mm within acceptable poultry variances.`;
+        chickExpr = 'serious';
+      }
+
+      const handleCopyReport = () => {
+        const report = [
+          `=== UNNIMUTTA LAB REPORT: DOUBLE-YOLK METROLOGY ===`,
+          `Date: ${new Date().toLocaleDateString()}`,
+          `Reference Standard: Virtual ₹10 Coin (${coin.realDiameterMm} mm = ${coin.diameterPx} px)`,
+          `Calibration Status: ${coin.isCalibratedToImage ? 'Physically Calibrated to In-Photo Coin' : 'Relative Virtual Benchmark'}`,
+          `----------------------------------------------------`,
+          `Yolk 1 (Alpha):  ${d1Mm.toFixed(1)} mm  (${d1Px} px) | Approx Vol: ${vol1Ml.toFixed(1)} mL`,
+          `Yolk 2 (Beta):   ${d2Mm.toFixed(1)} mm  (${d2Px} px) | Approx Vol: ${vol2Ml.toFixed(1)} mL`,
+          `Diameter Delta:  ${diffMm.toFixed(1)} mm`,
+          `Symmetry Index:  ${symmetryPercent.toFixed(1)}%`,
+          `Dominant Specimen: ${dominantYolk}`,
+          `Verdict: ${chickSpeech}`,
+          `====================================================`,
+        ].join('\n');
+
+        navigator.clipboard?.writeText(report);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2500);
+      };
+
+      return (
+        <div className="bg-[#FFFDF7] border-2 border-amber-300 rounded-3xl p-6 sm:p-8 shadow-xl shadow-amber-900/5 space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-4 pb-5 border-b border-amber-200">
+            <div>
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 text-amber-900 border border-amber-300 text-xs font-mono font-bold uppercase tracking-wider mb-2">
+                <span>📊</span>
+                <span>Step 7 Complete: Dual Yolk Metrology Report</span>
+              </div>
+              <h3 className="text-2xl font-black text-amber-950 font-serif">Specimen Comparative Analysis</h3>
+              <p className="text-xs text-amber-800/80">Computed against the 27.00 mm Reserve Bank of India ₹10 coin standard.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleCopyReport}
+                className="px-4 py-2 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-950 font-semibold text-xs border border-amber-300 transition-all flex items-center gap-1.5 shadow-xs"
+              >
+                <span>{copied ? '✓' : '📋'}</span>
+                <span>{copied ? 'Copied to Clipboard!' : 'Copy Lab Report'}</span>
+              </button>
+              <button
+                onClick={onResetAnalysis}
+                className="px-4 py-2 rounded-xl bg-amber-900 hover:bg-amber-800 text-white font-semibold text-xs transition-all shadow-xs"
+              >
+                ↺ New Measurement
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-amber-50/80 border-2 border-amber-300/80 rounded-2xl p-4 sm:p-5 relative overflow-hidden">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-full bg-amber-500 shadow-sm" />
+                  <span className="font-bold text-amber-950 text-sm font-serif">Yolk 1 (Alpha)</span>
+                </div>
+                <span className="text-[10px] font-mono font-semibold bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full">
+                  Ø {d1Px} px
+                </span>
+              </div>
+              <div className="text-3xl font-black text-amber-950 font-serif">
+                {d1Mm.toFixed(1)} <span className="text-base font-normal text-amber-800">mm</span>
+              </div>
+              <div className="mt-2 text-xs text-amber-800/80 font-mono space-y-1">
+                <div>Radius: {(d1Mm / 2).toFixed(1)} mm</div>
+                <div>Estimated Vol: ~{vol1Ml.toFixed(2)} mL</div>
+              </div>
+            </div>
+
+            <div className="bg-orange-50/80 border-2 border-orange-300/80 rounded-2xl p-4 sm:p-5 relative overflow-hidden">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-full bg-orange-600 shadow-sm" />
+                  <span className="font-bold text-amber-950 text-sm font-serif">Yolk 2 (Beta)</span>
+                </div>
+                <span className="text-[10px] font-mono font-semibold bg-orange-200 text-orange-950 px-2 py-0.5 rounded-full">
+                  Ø {d2Px} px
+                </span>
+              </div>
+              <div className="text-3xl font-black text-amber-950 font-serif">
+                {d2Mm.toFixed(1)} <span className="text-base font-normal text-amber-800">mm</span>
+              </div>
+              <div className="mt-2 text-xs text-amber-800/80 font-mono space-y-1">
+                <div>Radius: {(d2Mm / 2).toFixed(1)} mm</div>
+                <div>Estimated Vol: ~{vol2Ml.toFixed(2)} mL</div>
+              </div>
+            </div>
+
+            <div className="bg-[#FFFDF7] border-2 border-amber-400 rounded-2xl p-4 sm:p-5 flex flex-col justify-between">
+              <div>
+                <div className="text-xs font-mono font-bold uppercase tracking-wider text-amber-800 mb-1">
+                  Symmetry Index
+                </div>
+                <div className="text-3xl font-black text-amber-950 font-serif">
+                  {symmetryPercent.toFixed(1)}%
+                </div>
+                <div className="text-xs text-amber-900 font-semibold mt-1">
+                  Diameter Delta: <span className="font-mono font-bold text-amber-950">{diffMm.toFixed(1)} mm</span>
+                </div>
+              </div>
+              <div className="mt-3 pt-3 border-t border-amber-200 text-xs text-amber-800/90 font-mono">
+                Ratio: {(d1Mm / (d2Mm || 1)).toFixed(2)} : 1.00
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-amber-100/70 border border-amber-300 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-center gap-4">
+            <div className="flex-shrink-0">
+              <ChickMascot size={72} expression={chickExpr} pose="clipboard" showShadow={false} />
+            </div>
+            <div className="flex-1 text-center sm:text-left">
+              <div className="text-xs font-bold font-mono uppercase text-amber-900 tracking-wider">
+                Senior Poultry Metrologist Verdict:
+              </div>
+              <p className="mt-1 text-sm sm:text-base font-serif italic text-amber-950">
+                “{chickSpeech}”
+              </p>
+              <div className="mt-2 text-[11px] text-amber-800/80 font-mono">
+                Dominant specimen: <strong className="text-amber-950">{dominantYolk}</strong> • Scale: 1px = {mmPerPx.toFixed(3)} mm
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // ========================================================
+    // PART 3: VIRTUAL ₹10 COIN & TWIN-YOLK MEASUREMENT MODULES
+    // ========================================================
+
+    const RBI_COIN_MM = 27.00;
+    const DEFAULT_COIN_BASE_PX = 96;
+
+    // --- 1. Virtual ₹10 Indian Coin Component ---
+    const VirtualCoin = ({
+      x,
+      y,
+      diameterPx,
+      scale = 1.0,
+      pan = { x: 0, y: 0 },
+      mmPerPixel = 27.0 / 96,
+      isActive = true,
+      label = '₹10 Reference Coin',
+      onMove,
+      onResize,
+      onSelect,
+      showTransparencyToggle = true,
+    }) => {
+      const isDraggingRef = useRef(false);
+      const dragStartRef = useRef({ x: 0, y: 0, initialCoinX: 0, initialCoinY: 0 });
+      const isResizingRef = useRef(false);
+      const resizeStartRef = useRef({ x: 0, y: 0, initialDiameter: 0 });
+      const [seeThrough, setSeeThrough] = useState(false);
+
+      const screenX = pan.x + x * scale;
+      const screenY = pan.y + y * scale;
+      const screenDiameter = Math.max(30, diameterPx * scale);
+      const radius = screenDiameter / 2;
+      const diameterMm = (diameterPx * mmPerPixel).toFixed(2);
+
+      const handlePointerDown = (e) => {
+        if (e.target.closest('[data-no-drag="true"]')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onSelect?.();
+
+        isDraggingRef.current = true;
+        dragStartRef.current = {
+          x: e.clientX,
+          y: e.clientY,
+          initialCoinX: x,
+          initialCoinY: y,
+        };
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+      };
+
+      const handlePointerMove = (e) => {
+        if (isDraggingRef.current) {
+          e.preventDefault();
+          e.stopPropagation();
+          const dx = (e.clientX - dragStartRef.current.x) / scale;
+          const dy = (e.clientY - dragStartRef.current.y) / scale;
+          onMove(
+            Math.round(dragStartRef.current.initialCoinX + dx),
+            Math.round(dragStartRef.current.initialCoinY + dy)
+          );
+        } else if (isResizingRef.current) {
+          e.preventDefault();
+          e.stopPropagation();
+          const centerScreenX = pan.x + x * scale;
+          const centerScreenY = pan.y + y * scale;
+          const dx = e.clientX - centerScreenX;
+          const dy = e.clientY - centerScreenY;
+          const currentRadiusScreen = Math.sqrt(dx * dx + dy * dy);
+          const newDiameterPx = Math.max(20, Math.min(600, (currentRadiusScreen * 2) / scale));
+          onResize(Math.round(newDiameterPx));
+        }
+      };
+
+      const handlePointerUp = (e) => {
+        if (isDraggingRef.current || isResizingRef.current) {
+          e.preventDefault();
+          e.stopPropagation();
+          isDraggingRef.current = false;
+          isResizingRef.current = false;
+          try {
+            e.currentTarget.releasePointerCapture?.(e.pointerId);
+          } catch (err) {}
+        }
+      };
+
+      const handleResizePointerDown = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onSelect?.();
+
+        isResizingRef.current = true;
+        resizeStartRef.current = {
+          x: e.clientX,
+          y: e.clientY,
+          initialDiameter: diameterPx,
+        };
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+      };
+
+      return (
+        <div
+          className="absolute select-none group touch-none"
+          style={{
+            left: `${screenX - radius}px`,
+            top: `${screenY - radius}px`,
+            width: `${screenDiameter}px`,
+            height: `${screenDiameter}px`,
+            zIndex: isActive ? 30 : 20,
+            touchAction: 'none',
+          }}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+        >
+          <div
+            className={`absolute inset-0 rounded-full transition-all duration-200 pointer-events-none ${
+              isActive
+                ? 'ring-4 ring-amber-400 ring-offset-2 ring-offset-amber-950/40 shadow-2xl shadow-amber-500/50'
+                : 'ring-2 ring-amber-500/40 group-hover:ring-3 group-hover:ring-amber-400'
+            }`}
+          />
+
+          {isActive && (
+            <div className="absolute -inset-2 rounded-full border-2 border-dashed border-amber-300 pointer-events-none animate-spin-slow opacity-75" />
+          )}
+
+          <svg
+            viewBox="0 0 100 100"
+            className={`w-full h-full cursor-grab active:cursor-grabbing drop-shadow-xl transition-opacity duration-150 ${
+              seeThrough ? 'opacity-40' : 'opacity-95'
+            }`}
+          >
+            <defs>
+              <radialGradient id="brassOuterGradHtml" cx="38%" cy="38%" r="62%">
+                <stop offset="0%" stopColor="#FEF08A" />
+                <stop offset="40%" stopColor="#F59E0B" />
+                <stop offset="85%" stopColor="#D97706" />
+                <stop offset="100%" stopColor="#78350F" />
+              </radialGradient>
+              <radialGradient id="nickelInnerGradHtml" cx="35%" cy="35%" r="65%">
+                <stop offset="0%" stopColor="#FFFFFF" />
+                <stop offset="35%" stopColor="#F1F5F9" />
+                <stop offset="75%" stopColor="#CBD5E1" />
+                <stop offset="100%" stopColor="#64748B" />
+              </radialGradient>
+            </defs>
+
+            <circle cx="50" cy="50" r="48" fill="url(#brassOuterGradHtml)" stroke="#78350F" strokeWidth="1.5" />
+
+            {[...Array(10)].map((_, i) => {
+              const angle = (i * 36 * Math.PI) / 180;
+              const x1 = 50 + 45.5 * Math.cos(angle);
+              const y1 = 50 + 45.5 * Math.sin(angle);
+              const x2 = 50 + 40.5 * Math.cos(angle);
+              const y2 = 50 + 40.5 * Math.sin(angle);
+              return (
+                <line
+                  key={i}
+                  x1={x1}
+                  y1={y1}
+                  x2={x2}
+                  y2={y2}
+                  stroke="#92400E"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                />
+              );
+            })}
+
+            <circle cx="50" cy="50" r="32" fill="url(#nickelInnerGradHtml)" stroke="#92400E" strokeWidth="1.6" />
+            <circle cx="50" cy="50" r="30.5" fill="none" stroke="#94A3B8" strokeWidth="0.8" strokeDasharray="1.5 2" />
+
+            <line x1="50" y1="20" x2="50" y2="80" stroke="#78350F" strokeWidth="0.8" strokeDasharray="2 2" opacity="0.6" />
+            <line x1="20" y1="50" x2="80" y2="50" stroke="#78350F" strokeWidth="0.8" strokeDasharray="2 2" opacity="0.6" />
+            <circle cx="50" cy="50" r="2.5" fill="#DC2626" />
+
+            <text x="50" y="42" textAnchor="middle" fill="#1E293B" fontSize="17" fontWeight="900" fontFamily="system-ui, sans-serif" letterSpacing="-0.5">
+              ₹10
+            </text>
+            <text x="50" y="56" textAnchor="middle" fill="#334155" fontSize="7.5" fontWeight="bold" fontFamily="monospace">
+              {diameterMm} mm
+            </text>
+            <text x="50" y="68" textAnchor="middle" fill="#475569" fontSize="6" fontWeight="700" fontFamily="sans-serif" letterSpacing="0.8">
+              REF SCALE
+            </text>
+          </svg>
+
+          {isActive && (
+            <div
+              data-no-drag="true"
+              className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 w-7 h-7 bg-amber-400 border-2 border-amber-950 rounded-full cursor-ew-resize flex items-center justify-center shadow-lg hover:scale-125 transition-transform z-40 active:bg-amber-300"
+              title="Drag to resize ₹10 reference coin to yolk edge"
+              onPointerDown={handleResizePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerCancel={handlePointerUp}
+            >
+              <span className="text-[11px] font-black text-amber-950 leading-none pointer-events-none">↔</span>
+            </div>
+          )}
+
+          {isActive && (
+            <div
+              data-no-drag="true"
+              className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 w-6 h-6 bg-amber-400 border-2 border-amber-950 rounded-full cursor-ew-resize flex items-center justify-center shadow-lg hover:scale-125 transition-transform z-40 active:bg-amber-300"
+              title="Drag to resize ₹10 reference coin to yolk edge"
+              onPointerDown={handleResizePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerCancel={handlePointerUp}
+            >
+              <span className="text-[10px] font-black text-amber-950 leading-none pointer-events-none">↔</span>
+            </div>
+          )}
+
+          <div
+            className={`absolute left-1/2 -top-9 -translate-x-1/2 whitespace-nowrap px-3 py-1 rounded-full text-xs font-mono font-bold shadow-lg pointer-events-none flex items-center gap-1.5 transition-all ${
+              isActive ? 'bg-amber-950 text-amber-300 ring-2 ring-amber-400' : 'bg-amber-900/90 text-amber-100'
+            }`}
+          >
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+            <span>{label}</span>
+            <span className="text-white bg-amber-800/80 px-1.5 py-0.2 rounded text-[11px]">
+              {diameterMm} mm
+            </span>
+          </div>
+
+          {showTransparencyToggle && isActive && (
+            <button
+              data-no-drag="true"
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSeeThrough(!seeThrough);
+              }}
+              className="absolute left-1/2 -bottom-8 -translate-x-1/2 whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-black/75 hover:bg-black text-white/90 border border-white/20 transition-all shadow-md active:scale-95"
+              title="Toggle see-through transparency to align with yolk boundary"
+            >
+              👁 {seeThrough ? 'Opaque Coin' : 'See Yolk'}
+            </button>
+          )}
+        </div>
+      );
+    };
+
+    // --- 2. Measurement Controls Component ---
+    const MeasurementControls = ({
+      currentStep,
+      coinDiameterPx,
+      coinDiameterMm,
+      onZoomIn,
+      onZoomOut,
+      onReset,
+      onSliderChange,
+      onLockYolk1,
+      onLockYolk2,
+      onRestartMeasurement,
+      hasLockedYolk1,
+      hasLockedYolk2,
+      lastActionMessage,
+    }) => {
+      return (
+        <div className="bg-[#FFFDF7] border-2 border-amber-300 rounded-3xl p-5 sm:p-6 shadow-xl shadow-amber-900/5 space-y-5">
+          <div className="flex items-center justify-between pb-3 border-b border-amber-200">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">🎛️</span>
+              <div>
+                <h3 className="font-extrabold text-amber-950 text-base font-serif">Measurement Controls</h3>
+                <p className="text-[11px] text-amber-800/80 font-mono">Virtual ₹10 Coin Metrology</p>
+              </div>
+            </div>
+
+            <div className="text-right">
+              <div className="text-[10px] uppercase font-mono font-bold text-amber-700">Active Diameter</div>
+              <div className="text-lg font-black text-amber-950 font-mono">
+                {coinDiameterMm.toFixed(2)} <span className="text-xs font-semibold text-amber-800">mm</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between text-xs font-bold text-amber-900">
+              <span>Coin Diameter Adjustment:</span>
+              <span className="font-mono text-amber-800 text-[11px]">{coinDiameterPx} px</span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => { soundManager.play('click'); onZoomIn(); }}
+                className="py-3 px-2 rounded-2xl bg-amber-100 hover:bg-amber-200 border-2 border-amber-300 text-amber-950 font-bold text-sm shadow-xs transition-all flex items-center justify-center gap-1.5 active:scale-95 group"
+                title="Enlarge ₹10 coin diameter (＋ Zoom In)"
+              >
+                <span className="text-base font-black text-amber-900 group-hover:scale-125 transition-transform">＋</span>
+                <span className="text-xs font-bold">Zoom In</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { soundManager.play('click'); onZoomOut(); }}
+                className="py-3 px-2 rounded-2xl bg-amber-100 hover:bg-amber-200 border-2 border-amber-300 text-amber-950 font-bold text-sm shadow-xs transition-all flex items-center justify-center gap-1.5 active:scale-95 group"
+                title="Reduce ₹10 coin diameter (− Zoom Out)"
+              >
+                <span className="text-base font-black text-amber-900 group-hover:scale-125 transition-transform">−</span>
+                <span className="text-xs font-bold">Zoom Out</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { soundManager.play('pop'); onReset(); }}
+                className="py-3 px-2 rounded-2xl bg-amber-50 hover:bg-amber-100 border-2 border-amber-300 text-amber-900 font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-1 active:scale-95 group"
+                title="Reset coin position and size to default (↻ Reset)"
+              >
+                <span className="text-sm font-bold text-amber-800 group-hover:rotate-180 transition-transform duration-300">↻</span>
+                <span>Reset</span>
+              </button>
+            </div>
+
+            <div className="pt-1">
+              <input
+                type="range"
+                min="30"
+                max="320"
+                value={coinDiameterPx}
+                onChange={(e) => onSliderChange(Number(e.target.value))}
+                className="w-full h-2.5 bg-amber-200 rounded-lg appearance-none cursor-pointer accent-amber-600"
+                title="Drag slider for rapid diameter adjustment"
+              />
+              <div className="flex justify-between text-[10px] font-mono text-amber-700/80 pt-1">
+                <span>Small (~8.4 mm)</span>
+                <span>Default (27.00 mm)</span>
+                <span>Large (~90.0 mm)</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="p-3 rounded-2xl bg-amber-100/70 border border-amber-300/80 flex items-center justify-between text-xs">
+            <div className="flex items-center gap-2">
+              <span className="text-base">🧐</span>
+              <span className="font-serif italic text-amber-950 font-medium">
+                {lastActionMessage || '“Precision level: questionable.”'}
+              </span>
+            </div>
+            <span className="text-[10px] font-mono font-bold uppercase text-amber-800 bg-amber-200/80 px-2 py-0.5 rounded">
+              Lab Note
+            </span>
+          </div>
+
+          <div className="pt-2 space-y-2">
+            {currentStep === 'step1_yolk1' && (
+              <button
+                type="button"
+                onClick={() => { soundManager.play('ding'); onLockYolk1(); }}
+                className="w-full py-3.5 px-4 rounded-2xl bg-amber-500 hover:bg-amber-400 border-2 border-amber-600 text-amber-950 font-extrabold text-sm shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 active:scale-98"
+              >
+                <span className="text-base">✓</span>
+                <span>Lock Yolk 1 ({coinDiameterMm.toFixed(2)} mm)</span>
+              </button>
+            )}
+
+            {currentStep === 'step2_yolk2' && (
+              <button
+                type="button"
+                onClick={() => { soundManager.play('ding'); onLockYolk2(); }}
+                className="w-full py-3.5 px-4 rounded-2xl bg-orange-500 hover:bg-orange-400 border-2 border-orange-600 text-white font-extrabold text-sm shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 active:scale-98"
+              >
+                <span className="text-base">✓</span>
+                <span>Compare Yolks (Lock Yolk 2: {coinDiameterMm.toFixed(2)} mm)</span>
+              </button>
+            )}
+
+            {currentStep === 'step3_compare' && (
+              <div className="p-3 rounded-2xl bg-emerald-100 border border-emerald-300 text-emerald-950 text-xs font-bold text-center flex items-center justify-center gap-2">
+                <span>🎉</span>
+                <span>Both Yolks Documented & Ready for Comparison!</span>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => { soundManager.play('pop'); onRestartMeasurement(); }}
+              className="w-full py-2.5 px-3 rounded-2xl bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 font-bold text-xs transition-all flex items-center justify-center gap-1.5 active:scale-95"
+              title="Clear measurements and start over with the current egg photo"
+            >
+              <span>↻</span>
+              <span>Restart Measurement</span>
+            </button>
+          </div>
+        </div>
+      );
+    };
+
+    // --- 3. Yolk Measurement Cards & Locked Overlays ---
+    const YolkMeasurementCards = ({
+      currentStep,
+      yolk1,
+      yolk2,
+      activeYolk,
+      onSelectYolk,
+    }) => {
+      return (
+        <div className="bg-[#FFFDF7] border-2 border-amber-300 rounded-3xl p-5 shadow-lg shadow-amber-900/5 space-y-4">
+          <div className="flex items-center justify-between pb-2 border-b border-amber-200">
+            <h3 className="font-extrabold text-amber-950 text-base font-serif flex items-center gap-2">
+              <span>🥚</span>
+              <span>Two Yolk Specimens</span>
+            </h3>
+            <span className="text-[10px] font-mono font-bold uppercase text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">
+              Metrology Log
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => onSelectYolk('yolk1')}
+              className={`p-3.5 rounded-2xl border-2 text-left transition-all relative overflow-hidden ${
+                activeYolk === 'yolk1' && currentStep !== 'step3_compare'
+                  ? 'bg-amber-400/25 border-amber-500 shadow-md ring-2 ring-amber-400'
+                  : yolk1.locked
+                  ? 'bg-amber-100/60 border-amber-300 hover:bg-amber-100'
+                  : 'bg-amber-50/40 border-amber-200/80 hover:bg-amber-100/40'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="w-3.5 h-3.5 rounded-full bg-amber-500 shadow-xs flex items-center justify-center text-[8px] text-white font-bold">1</span>
+                {yolk1.locked ? (
+                  <span className="text-[9px] font-mono font-bold uppercase bg-emerald-600 text-white px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <span>✓</span><span>Locked</span>
+                  </span>
+                ) : activeYolk === 'yolk1' ? (
+                  <span className="text-[9px] font-mono font-bold uppercase bg-amber-600 text-white px-2 py-0.5 rounded-full animate-pulse">Measuring</span>
+                ) : (
+                  <span className="text-[9px] font-mono text-amber-700 bg-amber-200/60 px-2 py-0.5 rounded-full">Step 1</span>
+                )}
+              </div>
+              <div className="font-extrabold text-amber-950 text-sm font-serif">Yolk 1 (Alpha)</div>
+              <div className="mt-1">
+                <div className="text-xl font-black text-amber-950 font-mono">
+                  {yolk1.diameterMm > 0 ? (
+                    <>{yolk1.diameterMm.toFixed(2)} <span className="text-xs font-semibold text-amber-800">mm</span></>
+                  ) : (
+                    <span className="text-sm text-amber-600/70 italic font-sans font-normal">Measuring...</span>
+                  )}
+                </div>
+                <div className="text-[10px] font-mono text-amber-800/80 mt-0.5">
+                  {yolk1.diameterPx > 0 ? `Ø ${yolk1.diameterPx} px` : 'Move coin to fit'}
+                </div>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onSelectYolk('yolk2')}
+              className={`p-3.5 rounded-2xl border-2 text-left transition-all relative overflow-hidden ${
+                activeYolk === 'yolk2' && currentStep !== 'step3_compare'
+                  ? 'bg-orange-400/25 border-orange-500 shadow-md ring-2 ring-orange-400'
+                  : yolk2.locked
+                  ? 'bg-orange-100/60 border-orange-300 hover:bg-orange-100'
+                  : 'bg-orange-50/40 border-orange-200/80 hover:bg-orange-100/40'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="w-3.5 h-3.5 rounded-full bg-orange-600 shadow-xs flex items-center justify-center text-[8px] text-white font-bold">2</span>
+                {yolk2.locked ? (
+                  <span className="text-[9px] font-mono font-bold uppercase bg-emerald-600 text-white px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <span>✓</span><span>Locked</span>
+                  </span>
+                ) : activeYolk === 'yolk2' ? (
+                  <span className="text-[9px] font-mono font-bold uppercase bg-orange-600 text-white px-2 py-0.5 rounded-full animate-pulse">Measuring</span>
+                ) : (
+                  <span className="text-[9px] font-mono text-orange-700 bg-orange-200/60 px-2 py-0.5 rounded-full">Step 2</span>
+                )}
+              </div>
+              <div className="font-extrabold text-amber-950 text-sm font-serif">Yolk 2 (Beta)</div>
+              <div className="mt-1">
+                <div className="text-xl font-black text-amber-950 font-mono">
+                  {yolk2.diameterMm > 0 ? (
+                    <>{yolk2.diameterMm.toFixed(2)} <span className="text-xs font-semibold text-orange-800">mm</span></>
+                  ) : (
+                    <span className="text-sm text-orange-600/70 italic font-sans font-normal">Awaiting Step 2</span>
+                  )}
+                </div>
+                <div className="text-[10px] font-mono text-amber-800/80 mt-0.5">
+                  {yolk2.diameterPx > 0 ? `Ø ${yolk2.diameterPx} px` : 'Move coin after Step 1'}
+                </div>
+              </div>
+            </button>
+          </div>
+        </div>
+      );
+    };
+
+    const LockedYolkOverlay = ({ yolk, scale, pan, onClick }) => {
+      if (!yolk.locked || yolk.diameterPx <= 0) return null;
+
+      const screenX = pan.x + yolk.x * scale;
+      const screenY = pan.y + yolk.y * scale;
+      const screenDiameter = yolk.diameterPx * scale;
+      const radius = screenDiameter / 2;
+
+      const isYolk1 = yolk.id === 'yolk1';
+      const strokeColor = isYolk1 ? '#F59E0B' : '#EA580C';
+      const badgeBg = isYolk1 ? 'bg-amber-600' : 'bg-orange-600';
+
+      return (
+        <div
+          onClick={onClick}
+          className="absolute select-none pointer-events-auto cursor-pointer group"
+          style={{
+            left: `${screenX - radius}px`,
+            top: `${screenY - radius}px`,
+            width: `${screenDiameter}px`,
+            height: `${screenDiameter}px`,
+            zIndex: 22,
+          }}
+          title={`Click to re-adjust ${yolk.name}`}
+        >
+          <svg viewBox={`0 0 ${screenDiameter} ${screenDiameter}`} className="w-full h-full">
+            <circle
+              cx={radius}
+              cy={radius}
+              r={Math.max(2, radius - 2)}
+              fill={isYolk1 ? 'rgba(245, 158, 11, 0.15)' : 'rgba(234, 88, 12, 0.15)'}
+              stroke={strokeColor}
+              strokeWidth="2.5"
+              strokeDasharray="4 3"
+              className="group-hover:stroke-amber-400 transition-colors"
+            />
+            <circle cx={radius} cy={radius} r="3" fill={strokeColor} />
+            <line x1={radius - 8} y1={radius} x2={radius + 8} y2={radius} stroke={strokeColor} strokeWidth="1.5" />
+            <line x1={radius} y1={radius - 8} x2={radius} y2={radius + 8} stroke={strokeColor} strokeWidth="1.5" />
+          </svg>
+
+          <div
+            className={`absolute left-1/2 -top-7 -translate-x-1/2 whitespace-nowrap px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold text-white shadow-md flex items-center gap-1 ${badgeBg}`}
+          >
+            <span>✓</span>
+            <span>{yolk.name}: {yolk.diameterMm.toFixed(2)} mm</span>
+          </div>
+        </div>
+      );
+    };
+
+    // --- 4. Measurement Result Component ---
+    const MeasurementResult = ({
+      yolk1,
+      yolk2,
+      onRestartMeasurement,
+      onAdjustYolk,
+    }) => {
+      const [copied, setCopied] = useState(false);
+      const d1Mm = yolk1.diameterMm;
+      const d2Mm = yolk2.diameterMm;
+      const diffMm = Math.abs(d1Mm - d2Mm);
+      const ratioNum = d2Mm > 0 ? d1Mm / d2Mm : 1.0;
+      const ratioStr = `${ratioNum.toFixed(2)} : 1.00`;
+
+      const handleCopy = () => {
+        soundManager.play('ding');
+        const text = [
+          `=== UNNIMUTTA YOLK METROLOGY REPORT ===`,
+          `Standard Reference: Virtual ₹10 Indian Coin (27.00 mm)`,
+          `YOLK 1 Diameter: ${d1Mm.toFixed(2)} mm`,
+          `YOLK 2 Diameter: ${d2Mm.toFixed(2)} mm`,
+          `Diameter Difference: ${diffMm.toFixed(2)} mm`,
+          `Ratio (Yolk 1 : Yolk 2): ${ratioStr}`,
+          `Disclaimer: Approximate measurement based on the reference coin and image scale.`,
+          `=======================================`,
+        ].join('\n');
+
+        navigator.clipboard?.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2200);
+      };
+
+      return (
+        <div className="bg-[#FFFDF7] border-2 border-amber-300 rounded-3xl p-6 sm:p-8 shadow-2xl shadow-amber-900/10 space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-amber-200">
+            <div>
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-100 text-amber-900 border border-amber-300 text-xs font-mono font-bold uppercase tracking-wider mb-2">
+                <span>🔬</span>
+                <span>STEP 3 — Twin Yolk Measurement Results</span>
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              </div>
+              <h3 className="text-2xl sm:text-3xl font-black text-amber-950 font-serif">
+                Specimen Diameter Analysis
+              </h3>
+              <p className="text-xs sm:text-sm text-amber-800/80">
+                Calibrated against the 27.00 mm Reserve Bank of India ₹10 coin standard.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleCopy}
+                className="px-4 py-2 rounded-xl bg-amber-100 hover:bg-amber-200 border border-amber-300 text-amber-950 font-bold text-xs transition-all flex items-center gap-1.5 shadow-xs active:scale-95"
+              >
+                <span>{copied ? '✓' : '📋'}</span>
+                <span>{copied ? 'Copied!' : 'Copy Data'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { soundManager.play('pop'); onRestartMeasurement(); }}
+                className="px-4 py-2 rounded-xl bg-amber-900 hover:bg-amber-800 text-amber-50 font-bold text-xs transition-all shadow-md flex items-center gap-1.5 active:scale-95"
+                title="Start a new measurement on this image"
+              >
+                <span>↻</span>
+                <span>Restart Measurement</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-amber-50/90 border-2 border-amber-300/90 rounded-2xl p-5 relative overflow-hidden shadow-xs">
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-bold text-xs uppercase tracking-wider text-amber-900 font-mono flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+                  YOLK 1
+                </span>
+                {onAdjustYolk && (
+                  <button
+                    type="button"
+                    onClick={() => onAdjustYolk('yolk1')}
+                    className="text-[10px] font-mono text-amber-800 hover:text-amber-950 underline"
+                  >
+                    Re-adjust
+                  </button>
+                )}
+              </div>
+              <div className="text-xs text-amber-800/80 font-medium">Diameter:</div>
+              <div className="text-4xl font-black text-amber-950 font-mono tracking-tight mt-1">
+                {d1Mm.toFixed(2)} <span className="text-lg font-bold text-amber-800">mm</span>
+              </div>
+              <div className="mt-2 text-[11px] font-mono text-amber-700/80">Pixel span: {yolk1.diameterPx} px</div>
+            </div>
+
+            <div className="bg-orange-50/90 border-2 border-orange-300/90 rounded-2xl p-5 relative overflow-hidden shadow-xs">
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-bold text-xs uppercase tracking-wider text-orange-950 font-mono flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-orange-600" />
+                  YOLK 2
+                </span>
+                {onAdjustYolk && (
+                  <button
+                    type="button"
+                    onClick={() => onAdjustYolk('yolk2')}
+                    className="text-[10px] font-mono text-orange-800 hover:text-orange-950 underline"
+                  >
+                    Re-adjust
+                  </button>
+                )}
+              </div>
+              <div className="text-xs text-orange-800/80 font-medium">Diameter:</div>
+              <div className="text-4xl font-black text-amber-950 font-mono tracking-tight mt-1">
+                {d2Mm.toFixed(2)} <span className="text-lg font-bold text-orange-800">mm</span>
+              </div>
+              <div className="mt-2 text-[11px] font-mono text-orange-700/80">Pixel span: {yolk2.diameterPx} px</div>
+            </div>
+
+            <div className="bg-amber-100/70 border-2 border-amber-300/90 rounded-2xl p-5 relative overflow-hidden shadow-xs">
+              <div className="font-bold text-xs uppercase tracking-wider text-amber-900 font-mono mb-2 flex items-center gap-1.5">
+                <span>⚖️</span>
+                <span>Diameter Difference</span>
+              </div>
+              <div className="text-xs text-amber-800/80 font-medium">Absolute delta:</div>
+              <div className="text-4xl font-black text-amber-950 font-mono tracking-tight mt-1">
+                {diffMm.toFixed(2)} <span className="text-lg font-bold text-amber-800">mm</span>
+              </div>
+              <div className="mt-2 text-[11px] font-mono text-amber-700/80">
+                {diffMm < 0.5 ? 'Slight variance (<0.5mm)' : `${diffMm.toFixed(2)} mm disparity`}
+              </div>
+            </div>
+
+            <div className="bg-[#FFFBEB] border-2 border-amber-400 rounded-2xl p-5 relative overflow-hidden shadow-xs">
+              <div className="font-bold text-xs uppercase tracking-wider text-amber-900 font-mono mb-2 flex items-center gap-1.5">
+                <span>📐</span>
+                <span>Ratio</span>
+              </div>
+              <div className="text-xs text-amber-800/80 font-medium">Yolk 1 : Yolk 2:</div>
+              <div className="text-3xl font-black text-amber-950 font-mono tracking-tight mt-1">
+                {ratioStr}
+              </div>
+              <div className="mt-2 text-[11px] font-mono text-amber-700/80">
+                Direct scale: {d1Mm.toFixed(1)} : {d2Mm.toFixed(1)}
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-amber-100/80 border border-amber-300 rounded-3xl p-5 flex flex-col sm:flex-row items-center gap-5">
+            <div className="flex-shrink-0">
+              <ChickMascot
+                size={72}
+                expression="serious"
+                pose="clipboard"
+                showShadow={false}
+                interactive={true}
+                onClick={() => soundManager.play('pop')}
+              />
+            </div>
+            <div className="flex-1 text-center sm:text-left space-y-1">
+              <div className="text-[11px] font-mono font-bold uppercase text-amber-900 tracking-wider flex items-center justify-center sm:justify-start gap-2">
+                <span>Senior Poultry Metrologist Field Report:</span>
+                <span className="text-[9px] bg-amber-200 text-amber-900 px-2 py-0.5 rounded font-mono font-bold">
+                  Official Note
+                </span>
+              </div>
+              <p className="text-sm font-serif italic text-amber-950">
+                “Specimens documented with virtual coin metrology. Yolk 1 measured at{' '}
+                <strong className="font-mono font-bold not-italic text-amber-950">{d1Mm.toFixed(2)} mm</strong> and
+                Yolk 2 at{' '}
+                <strong className="font-mono font-bold not-italic text-amber-950">{d2Mm.toFixed(2)} mm</strong>.
+                Disparity delta records at{' '}
+                <strong className="font-mono font-bold not-italic text-amber-950">{diffMm.toFixed(2)} mm</strong>.
+                Precision level: questionable, but enthusiastically calculated.”
+              </p>
+              <p className="text-xs font-mono text-amber-800/80 pt-1">
+                Part 4 will render the authoritative verdict on whether these fraternal twin yolks are officially identical!
+              </p>
+            </div>
+          </div>
+
+          <div className="pt-2 text-center">
+            <p className="text-xs text-amber-800/80 font-serif italic max-w-xl mx-auto px-4 py-2 bg-amber-50/60 rounded-xl border border-amber-200/60">
+              «“Approximate measurement based on the reference coin and image scale.”»
+            </p>
+          </div>
+        </div>
+      );
+    };
+
+    // --- 5. Main Measurement Tool Coordinator Component ---
+    const MeasurementTool = ({
+      imageSrc,
+      imageName = 'Uploaded Specimen',
+      imageDimensions,
+      onUploadNewImage,
+    }) => {
+      const containerRef = useRef(null);
+
+      const [workflowStep, setWorkflowStep] = useState('step1_yolk1');
+      const [lastActionMessage, setLastActionMessage] = useState(null);
+
+      const [canvasScale, setCanvasScale] = useState(1.0);
+      const [canvasPan, setCanvasPan] = useState({ x: 0, y: 0 });
+      const isCanvasPanningRef = useRef(false);
+      const canvasPanStartRef = useRef({ x: 0, y: 0, initialPanX: 0, initialPanY: 0 });
+
+      const mmPerPixel = RBI_COIN_MM / DEFAULT_COIN_BASE_PX;
+
+      const [coin, setCoin] = useState({ x: 340, y: 300, diameterPx: 140 });
+
+      const [yolk1, setYolk1] = useState({
+        id: 'yolk1',
+        name: 'Yolk 1 (Alpha)',
+        x: 340,
+        y: 300,
+        diameterPx: 140,
+        diameterMm: 140 * mmPerPixel,
+        locked: false,
+      });
+
+      const [yolk2, setYolk2] = useState({
+        id: 'yolk2',
+        name: 'Yolk 2 (Beta)',
+        x: 480,
+        y: 295,
+        diameterPx: 134,
+        diameterMm: 134 * mmPerPixel,
+        locked: false,
+      });
+
+      const [activeYolkTarget, setActiveYolkTarget] = useState('yolk1');
+
+      useEffect(() => {
+        if (containerRef.current && imageDimensions) {
+          const containerW = containerRef.current.clientWidth || 800;
+          const containerH = containerRef.current.clientHeight || 560;
+          const fitScale = Math.min(
+            1.0,
+            (containerW * 0.9) / imageDimensions.width,
+            (containerH * 0.9) / imageDimensions.height
+          );
+          const safeScale = Number(fitScale.toFixed(2)) || 1.0;
+          setCanvasScale(safeScale);
+          setCanvasPan({
+            x: Math.round((containerW - imageDimensions.width * safeScale) / 2),
+            y: Math.round((containerH - imageDimensions.height * safeScale) / 2),
+          });
+        }
+      }, [imageDimensions]);
+
+      const handleCoinMove = (newX, newY) => {
+        setCoin((prev) => ({ ...prev, x: newX, y: newY }));
+        if (activeYolkTarget === 'yolk1' && !yolk1.locked) {
+          setYolk1((prev) => ({ ...prev, x: newX, y: newY }));
+        } else if (activeYolkTarget === 'yolk2' && !yolk2.locked) {
+          setYolk2((prev) => ({ ...prev, x: newX, y: newY }));
+        }
+      };
+
+      const handleCoinResize = (newDiameterPx) => {
+        const clampedPx = Math.max(20, Math.min(500, newDiameterPx));
+        setCoin((prev) => ({ ...prev, diameterPx: clampedPx }));
+        const calculatedMm = clampedPx * mmPerPixel;
+
+        if (activeYolkTarget === 'yolk1' && !yolk1.locked) {
+          setYolk1((prev) => ({ ...prev, diameterPx: clampedPx, diameterMm: calculatedMm }));
+        } else if (activeYolkTarget === 'yolk2' && !yolk2.locked) {
+          setYolk2((prev) => ({ ...prev, diameterPx: clampedPx, diameterMm: calculatedMm }));
+        }
+      };
+
+      const handleZoomInCoin = () => handleCoinResize(coin.diameterPx + 4);
+      const handleZoomOutCoin = () => handleCoinResize(coin.diameterPx - 4);
+
+      const handleResetCoin = () => {
+        if (activeYolkTarget === 'yolk1') {
+          const reset = { x: 340, y: 300, diameterPx: 140 };
+          setCoin(reset);
+          setYolk1((prev) => ({ ...prev, ...reset, diameterMm: reset.diameterPx * mmPerPixel }));
+        } else {
+          const reset = { x: 480, y: 295, diameterPx: 134 };
+          setCoin(reset);
+          setYolk2((prev) => ({ ...prev, ...reset, diameterMm: reset.diameterPx * mmPerPixel }));
+        }
+        setLastActionMessage(null);
+      };
+
+      const handleLockYolk1 = () => {
+        const currentMm = coin.diameterPx * mmPerPixel;
+        setYolk1({
+          id: 'yolk1',
+          name: 'Yolk 1 (Alpha)',
+          x: coin.x,
+          y: coin.y,
+          diameterPx: coin.diameterPx,
+          diameterMm: currentMm,
+          locked: true,
+        });
+        setLastActionMessage('“The yolk has been documented.”');
+        setActiveYolkTarget('yolk2');
+        setWorkflowStep('step2_yolk2');
+        setCoin({ x: 480, y: 295, diameterPx: yolk2.diameterPx || 134 });
+      };
+
+      const handleLockYolk2 = () => {
+        const currentMm = coin.diameterPx * mmPerPixel;
+        setYolk2({
+          id: 'yolk2',
+          name: 'Yolk 2 (Beta)',
+          x: coin.x,
+          y: coin.y,
+          diameterPx: coin.diameterPx,
+          diameterMm: currentMm,
+          locked: true,
+        });
+        setLastActionMessage('“The yolk has been documented.”');
+        setWorkflowStep('step3_compare');
+      };
+
+      const handleRestartMeasurement = () => {
+        setWorkflowStep('step1_yolk1');
+        setActiveYolkTarget('yolk1');
+        setLastActionMessage(null);
+
+        const initYolk1 = {
+          id: 'yolk1',
+          name: 'Yolk 1 (Alpha)',
+          x: 340,
+          y: 300,
+          diameterPx: 140,
+          diameterMm: 140 * mmPerPixel,
+          locked: false,
+        };
+        const initYolk2 = {
+          id: 'yolk2',
+          name: 'Yolk 2 (Beta)',
+          x: 480,
+          y: 295,
+          diameterPx: 134,
+          diameterMm: 134 * mmPerPixel,
+          locked: false,
+        };
+        setYolk1(initYolk1);
+        setYolk2(initYolk2);
+        setCoin({ x: initYolk1.x, y: initYolk1.y, diameterPx: initYolk1.diameterPx });
+      };
+
+      const handleSelectYolkToAdjust = (yolkId) => {
+        soundManager.play('click');
+        setActiveYolkTarget(yolkId);
+        if (yolkId === 'yolk1') {
+          setWorkflowStep('step1_yolk1');
+          setYolk1((prev) => ({ ...prev, locked: false }));
+          setCoin({ x: yolk1.x, y: yolk1.y, diameterPx: yolk1.diameterPx });
+        } else {
+          setWorkflowStep('step2_yolk2');
+          setYolk2((prev) => ({ ...prev, locked: false }));
+          setCoin({ x: yolk2.x, y: yolk2.y, diameterPx: yolk2.diameterPx });
+        }
+      };
+
+      const handleCanvasPointerDown = (e) => {
+        if (e.target.closest('[data-interactive="true"]')) return;
+        isCanvasPanningRef.current = true;
+        canvasPanStartRef.current = {
+          x: e.clientX,
+          y: e.clientY,
+          initialPanX: canvasPan.x,
+          initialPanY: canvasPan.y,
+        };
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+      };
+
+      const handleCanvasPointerMove = (e) => {
+        if (isCanvasPanningRef.current) {
+          const dx = e.clientX - canvasPanStartRef.current.x;
+          const dy = e.clientY - canvasPanStartRef.current.y;
+          setCanvasPan({
+            x: canvasPanStartRef.current.initialPanX + dx,
+            y: canvasPanStartRef.current.initialPanY + dy,
+          });
+        }
+      };
+
+      const handleCanvasPointerUp = (e) => {
+        if (isCanvasPanningRef.current) {
+          isCanvasPanningRef.current = false;
+          try {
+            e.currentTarget.releasePointerCapture?.(e.pointerId);
+          } catch (err) {}
+        }
+      };
+
+      const handleCanvasWheel = (e) => {
+        e.preventDefault();
+        const factor = e.deltaY < 0 ? 1.08 : 0.92;
+        setCanvasScale((prev) => Math.max(0.3, Math.min(3.5, Number((prev * factor).toFixed(2)))));
+      };
+
+      const getStepGuidance = () => {
+        switch (workflowStep) {
+          case 'step1_yolk1':
+            return {
+              stepNum: 'STEP 1',
+              title: 'Measure Yolk 1',
+              instruction: 'Place the virtual ₹10 coin over the first yolk and adjust it.',
+              expression: 'serious',
+              pose: 'measuring',
+              chickSpeech: 'Align the virtual ₹10 coin directly over Yolk 1 (Alpha). Expand or shrink until the rim matches the yolk circumference.',
+            };
+          case 'step2_yolk2':
+            return {
+              stepNum: 'STEP 2',
+              title: 'Measure Yolk 2',
+              instruction: 'Move the same virtual coin to the second yolk and adjust it.',
+              expression: 'squint',
+              pose: 'measuring',
+              chickSpeech: 'Yolk 1 is locked! Now drag the same virtual coin over Yolk 2 (Beta) and calibrate its diameter.',
+            };
+          case 'step3_compare':
+            return {
+              stepNum: 'STEP 3',
+              title: 'Compare',
+              instruction: 'See whether the yolks have the same diameter.',
+              expression: 'celebrating',
+              pose: 'clipboard',
+              chickSpeech: 'Measurements finalized! Compare their calibrated diameters and symmetry index below.',
+            };
+        }
+      };
+
+      const guidance = getStepGuidance();
+      const currentCoinMm = coin.diameterPx * mmPerPixel;
+
+      return (
+        <div className="space-y-6">
+          <div className="bg-[#FFFDF7] border-2 border-amber-300 rounded-3xl p-5 sm:p-6 shadow-xl shadow-amber-900/5">
+            <div className="flex flex-col sm:flex-row items-center gap-5">
+              <div className="flex-shrink-0">
+                <ChickMascot
+                  size={80}
+                  expression={guidance.expression}
+                  pose={guidance.pose}
+                  showShadow={true}
+                  interactive={true}
+                  onClick={() => soundManager.play('pop')}
+                />
+              </div>
+
+              <div className="flex-1 text-center sm:text-left space-y-1.5">
+                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
+                  <span className="px-3 py-1 rounded-full bg-amber-400 text-amber-950 font-mono font-black text-xs uppercase tracking-wider shadow-xs">
+                    {guidance.stepNum} — {guidance.title}
+                  </span>
+                  <span className="text-[11px] font-mono text-amber-800 bg-amber-100 px-2.5 py-0.5 rounded-full font-bold">
+                    Metrology Pipeline
+                  </span>
+                </div>
+
+                <h3 className="text-xl sm:text-2xl font-black text-amber-950 font-serif">
+                  {guidance.instruction}
+                </h3>
+
+                <p className="text-xs sm:text-sm text-amber-900/80 font-serif italic">
+                  “{guidance.chickSpeech}”
+                </p>
+              </div>
+
+              <div className="flex sm:flex-col gap-2 flex-shrink-0">
+                <div
+                  className={`px-3 py-1.5 rounded-xl border text-xs font-mono font-bold flex items-center gap-1.5 ${
+                    workflowStep === 'step1_yolk1'
+                      ? 'bg-amber-900 text-amber-50 border-amber-950 shadow-xs'
+                      : yolk1.locked
+                      ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                      : 'bg-amber-50 text-amber-900 border-amber-200 opacity-60'
+                  }`}
+                >
+                  <span>{yolk1.locked ? '✓' : '1'}</span>
+                  <span>Yolk 1</span>
+                </div>
+
+                <div
+                  className={`px-3 py-1.5 rounded-xl border text-xs font-mono font-bold flex items-center gap-1.5 ${
+                    workflowStep === 'step2_yolk2'
+                      ? 'bg-amber-900 text-amber-50 border-amber-950 shadow-xs'
+                      : yolk2.locked
+                      ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                      : 'bg-amber-50 text-amber-900 border-amber-200 opacity-60'
+                  }`}
+                >
+                  <span>{yolk2.locked ? '✓' : '2'}</span>
+                  <span>Yolk 2</span>
+                </div>
+
+                <div
+                  className={`px-3 py-1.5 rounded-xl border text-xs font-mono font-bold flex items-center gap-1.5 ${
+                    workflowStep === 'step3_compare'
+                      ? 'bg-amber-900 text-amber-50 border-amber-950 shadow-xs'
+                      : 'bg-amber-50 text-amber-900 border-amber-200 opacity-60'
+                  }`}
+                >
+                  <span>3</span>
+                  <span>Compare</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            <div className="lg:col-span-8 space-y-3">
+              <div className="relative w-full h-[520px] sm:h-[600px] rounded-3xl overflow-hidden border-2 border-amber-300 bg-[#18181B] shadow-2xl select-none touch-none">
+                <div
+                  className="absolute inset-0 pointer-events-none opacity-20"
+                  style={{
+                    backgroundImage:
+                      'linear-gradient(to right, #52525B 1px, transparent 1px), linear-gradient(to bottom, #52525B 1px, transparent 1px)',
+                    backgroundSize: '24px 24px',
+                  }}
+                />
+
+                <div className="absolute top-4 left-4 z-30 flex items-center gap-2 bg-black/75 backdrop-blur-md px-3.5 py-1.5 rounded-2xl border border-white/15 text-white text-xs font-mono">
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
+                  <span className="text-white/80">Active Tool:</span>
+                  <span className="font-bold text-amber-300 uppercase">
+                    {workflowStep === 'step1_yolk1'
+                      ? '🪙 ₹10 Coin → Yolk 1'
+                      : workflowStep === 'step2_yolk2'
+                      ? '🪙 ₹10 Coin → Yolk 2'
+                      : '📊 Comparison Mode'}
+                  </span>
+                </div>
+
+                <div className="absolute top-4 right-4 z-30 flex items-center gap-2 bg-amber-950/90 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-amber-400/40 text-white shadow-lg">
+                  <span className="text-[11px] font-mono font-bold text-amber-300 pr-1">
+                    {Math.round(canvasScale * 100)}%
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setCanvasScale((s) => Math.min(3.5, Number((s + 0.15).toFixed(2))))}
+                    className="w-7 h-7 rounded-xl bg-amber-500/20 hover:bg-amber-400 hover:text-amber-950 flex items-center justify-center text-sm font-bold transition-all active:scale-95"
+                    title="Zoom In Canvas (+)"
+                  >
+                    +
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCanvasScale((s) => Math.max(0.3, Number((s - 0.15).toFixed(2))))}
+                    className="w-7 h-7 rounded-xl bg-amber-500/20 hover:bg-amber-400 hover:text-amber-950 flex items-center justify-center text-sm font-bold transition-all active:scale-95"
+                    title="Zoom Out Canvas (−)"
+                  >
+                    −
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCanvasScale(1.0);
+                      setCanvasPan({ x: 0, y: 0 });
+                    }}
+                    className="px-2 h-7 rounded-xl bg-amber-500/20 hover:bg-amber-400 hover:text-amber-950 text-[11px] font-semibold flex items-center transition-all active:scale-95"
+                    title="Reset Canvas View"
+                  >
+                    ↺ Fit
+                  </button>
+                </div>
+
+                <div
+                  ref={containerRef}
+                  className="w-full h-full cursor-grab active:cursor-grabbing overflow-hidden relative"
+                  onWheel={handleCanvasWheel}
+                  onPointerDown={handleCanvasPointerDown}
+                  onPointerMove={handleCanvasPointerMove}
+                  onPointerUp={handleCanvasPointerUp}
+                  onPointerCancel={handleCanvasPointerUp}
+                >
+                  <div
+                    className="absolute pointer-events-none origin-top-left transition-transform duration-75"
+                    style={{
+                      transform: `translate(${canvasPan.x}px, ${canvasPan.y}px) scale(${canvasScale})`,
+                      width: imageDimensions?.width ? `${imageDimensions.width}px` : '800px',
+                      height: imageDimensions?.height ? `${imageDimensions.height}px` : '600px',
+                    }}
+                  >
+                    <img
+                      src={imageSrc}
+                      alt="Uploaded Egg Specimen"
+                      className="max-w-none shadow-2xl rounded-xl border border-amber-500/20 pointer-events-none"
+                      style={{
+                        width: imageDimensions?.width ? `${imageDimensions.width}px` : '800px',
+                        height: imageDimensions?.height ? `${imageDimensions.height}px` : '600px',
+                        objectFit: 'contain',
+                      }}
+                    />
+                  </div>
+
+                  {yolk1.locked && (
+                    <div data-interactive="true">
+                      <LockedYolkOverlay
+                        yolk={yolk1}
+                        scale={canvasScale}
+                        pan={canvasPan}
+                        onClick={() => handleSelectYolkToAdjust('yolk1')}
+                      />
+                    </div>
+                  )}
+
+                  {yolk2.locked && (
+                    <div data-interactive="true">
+                      <LockedYolkOverlay
+                        yolk={yolk2}
+                        scale={canvasScale}
+                        pan={canvasPan}
+                        onClick={() => handleSelectYolkToAdjust('yolk2')}
+                      />
+                    </div>
+                  )}
+
+                  {workflowStep !== 'step3_compare' && (
+                    <div data-interactive="true">
+                      <VirtualCoin
+                        x={coin.x}
+                        y={coin.y}
+                        diameterPx={coin.diameterPx}
+                        scale={canvasScale}
+                        pan={canvasPan}
+                        mmPerPixel={mmPerPixel}
+                        isActive={true}
+                        label={activeYolkTarget === 'yolk1' ? '₹10 Coin → Yolk 1' : '₹10 Coin → Yolk 2'}
+                        onMove={handleCoinMove}
+                        onResize={handleCoinResize}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div className="absolute bottom-3 left-4 right-4 pointer-events-none flex items-center justify-between text-[11px] font-mono text-amber-200/90 bg-black/60 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10">
+                  <div className="flex items-center gap-2">
+                    <span>Specimen: <strong className="text-white font-medium">{imageName}</strong></span>
+                    <span className="hidden sm:inline">•</span>
+                    <span className="hidden sm:inline">Reference Scale: 1px = {mmPerPixel.toFixed(3)}mm</span>
+                  </div>
+                  <div className="text-amber-400 font-bold">
+                    Virtual ₹10 Coin (27.00 mm Standard)
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between text-xs text-amber-900/80 px-3">
+                <span>Drag the ₹10 coin directly with your mouse or finger on mobile</span>
+                <div className="flex items-center gap-3">
+                  <span>Scroll wheel to zoom image</span>
+                  <span>•</span>
+                  <button
+                    type="button"
+                    onClick={onUploadNewImage}
+                    className="font-bold underline text-amber-950 hover:text-amber-800"
+                  >
+                    Switch Egg Image
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="lg:col-span-4 space-y-4">
+              <YolkMeasurementCards
+                currentStep={workflowStep}
+                yolk1={yolk1}
+                yolk2={yolk2}
+                activeYolk={activeYolkTarget}
+                onSelectYolk={handleSelectYolkToAdjust}
+              />
+
+              <MeasurementControls
+                currentStep={workflowStep}
+                coinDiameterPx={coin.diameterPx}
+                coinDiameterMm={currentCoinMm}
+                onZoomIn={handleZoomInCoin}
+                onZoomOut={handleZoomOutCoin}
+                onReset={handleResetCoin}
+                onSliderChange={handleCoinResize}
+                onLockYolk1={handleLockYolk1}
+                onLockYolk2={handleLockYolk2}
+                onRestartMeasurement={handleRestartMeasurement}
+                hasLockedYolk1={yolk1.locked}
+                hasLockedYolk2={yolk2.locked}
+                lastActionMessage={lastActionMessage}
+              />
+            </div>
+          </div>
+
+          {(workflowStep === 'step3_compare' || (yolk1.locked && yolk2.locked)) && (
+            <div id="measurement-results" className="pt-2 animate-fadeIn">
+              <MeasurementResult
+                yolk1={yolk1}
+                yolk2={yolk2}
+                onRestartMeasurement={handleRestartMeasurement}
+                onAdjustYolk={handleSelectYolkToAdjust}
+              />
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    // --- 6. Main Analyzer View Container ---
+    const AnalyzerView = () => {
+      const [imageSrc, setImageSrc] = useState(SAMPLE_SPECIMENS[0].imageUrl);
+      const [imageName, setImageName] = useState(SAMPLE_SPECIMENS[0].name);
+      const [imageDimensions, setImageDimensions] = useState({ width: 800, height: 600 });
+      const fileInputRef = useRef(null);
+
+      useEffect(() => {
+        if (!imageSrc) return;
+        const img = new Image();
+        img.onload = () => {
+          setImageDimensions({ width: img.naturalWidth || 800, height: img.naturalHeight || 600 });
+        };
+        img.src = imageSrc;
+      }, [imageSrc]);
+
+      const handleFileUpload = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        if (!['image/jpeg', 'image/png', 'image/jpg'].includes(file.type)) {
+          alert('Please upload a valid image in JPG, JPEG, or PNG format.');
+          return;
+        }
+
+        soundManager.play('pop');
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const result = event.target?.result;
+          setImageSrc(result);
+          setImageName(file.name);
+        };
+        reader.readAsDataURL(file);
+      };
+
+      const handleSelectSample = (sample) => {
+        soundManager.play('pop');
+        setImageSrc(sample.imageUrl);
+        setImageName(sample.name);
+      };
+
+      return (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+          <div className="bg-[#FFFDF7] border-2 border-amber-200/90 rounded-3xl p-5 sm:p-6 shadow-md shadow-amber-900/5">
+            <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-amber-100">
+              <div>
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-100 text-amber-900 border border-amber-300 text-xs font-mono font-bold uppercase tracking-wider mb-2">
+                  <span>🔬</span>
+                  <span>PART 3: Virtual ₹10 Coin Metrology Station</span>
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                </div>
+                <h2 className="text-2xl sm:text-3xl font-extrabold text-amber-950 font-serif">
+                  Double Egg Yolk Diameter Measurement
+                </h2>
+                <p className="text-xs sm:text-sm text-amber-800/80 mt-0.5">
+                  Standardized twin yolk measurement with the interactive virtual ₹10 Indian coin reference overlay (27.0 mm).
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileUpload}
+                  accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+                  className="hidden"
+                />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-4 py-2.5 rounded-2xl bg-amber-400 hover:bg-amber-300 text-amber-950 font-bold text-xs sm:text-sm border border-amber-500 shadow-sm hover:shadow transition-all flex items-center gap-2 transform hover:-translate-y-0.5 active:translate-y-0"
+                >
+                  <span>📁</span>
+                  <span>Upload My Egg</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="pt-4 flex flex-wrap items-center gap-2">
+              <span className="text-xs font-mono font-bold text-amber-900/80 pl-1">
+                Certified Specimens:
+              </span>
+              {SAMPLE_SPECIMENS.map((specimen) => (
+                <button
+                  key={specimen.id}
+                  onClick={() => handleSelectSample(specimen)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 ${
+                    imageName === specimen.name
+                      ? 'bg-amber-900 text-amber-50 border-amber-950 shadow-xs'
+                      : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-200'
+                  }`}
+                >
+                  <span>🥚</span>
+                  <span>{specimen.badge}: {specimen.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <MeasurementTool
+            imageSrc={imageSrc}
+            imageName={imageName}
+            imageDimensions={imageDimensions}
+            onUploadNewImage={() => fileInputRef.current?.click()}
+          />
+        </div>
+      );
+    };
+
+    // ==========================================
+    // 9. ROOT APP CONTROLLER
+    // ==========================================
+    const App = () => {
+      const [showIntro, setShowIntro] = useState(true);
+      const [activeTab, setActiveTab] = useState('home');
+      const [isMuted, setIsMuted] = useState(soundManager.getMuted());
+
+      useEffect(() => {
+        return soundManager.subscribeMuteChange(muted => setIsMuted(muted));
+      }, []);
+
+      return (
+        <div className="min-h-screen bg-[#FEF9E7] text-amber-950 flex flex-col font-sans selection:bg-amber-300 selection:text-amber-950">
+          {showIntro && (
+            <IntroAnimation
+              onComplete={() => setShowIntro(false)}
+              isMuted={isMuted}
+              onToggleMute={() => soundManager.toggleMute()}
+            />
+          )}
+
+          <Navbar
+            activeTab={activeTab}
+            onSelectTab={setActiveTab}
+            onReplayIntro={() => setShowIntro(true)}
+          />
+
+          <main className="flex-1">
+            {activeTab === 'home' ? (
+              <HeroSection
+                onNavigateAnalyze={() => setActiveTab('analyze')}
+                onNavigateLeaderboard={() => setActiveTab('leaderboard')}
+              />
+            ) : activeTab === 'analyze' ? (
+              <AnalyzerView />
+            ) : (
+              <PlaceholderView
+                tab={activeTab}
+                onBackToHome={() => setActiveTab('home')}
+              />
+            )}
+          </main>
+
+          <footer className="border-t border-amber-200/80 bg-[#FEF9E7] py-8 text-center text-xs text-amber-900/70">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-2">
+              <div className="flex flex-wrap items-center justify-center gap-4 text-xs font-semibold text-amber-900">
+                <button onClick={() => setActiveTab('home')} className="hover:text-amber-950 hover:underline">Home</button>
+                <span>•</span>
+                <button onClick={() => setActiveTab('analyze')} className="hover:text-amber-950 hover:underline">Analyze Egg (Part 2)</button>
+                <span>•</span>
+                <button onClick={() => setActiveTab('leaderboard')} className="hover:text-amber-950 hover:underline">Leaderboard (Part 6)</button>
+                <span>•</span>
+                <button onClick={() => setActiveTab('game')} className="hover:text-amber-950 hover:underline">Chicken Game (Part 7)</button>
+                <span>•</span>
+                <button onClick={() => setActiveTab('about')} className="hover:text-amber-950 hover:underline">About UNNIMUTTA</button>
+              </div>
+              <p className="pt-2 text-amber-800/80">
+                © {new Date().getFullYear()} UNNIMUTTA Institute of Advanced Double-Yolk Studies. All rights reserved.
+              </p>
+              <p className="text-[11px] text-amber-700/60 italic">
+                “No actual double-yolk eggs were harmed in this website, except during the opening tennis smash. Important research. Probably.”
+              </p>
+            </div>
+          </footer>
+        </div>
+      );
+    };
+
+    const rootElement = document.getElementById('root');
+    if (rootElement) {
+      ReactDOM.createRoot(rootElement).render(<App />);
+    }
+  </script>
+</body>
+</html>
