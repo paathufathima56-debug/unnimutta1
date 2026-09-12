@@ -222,7 +222,7 @@ Caption: The Unnimutta landing page featuring the yellow-and-white visual theme,
 
 2. Egg Measurement Workspace
 
-![Measurement Workspace](Add measurement workspace screenshot here)
+![Measurement Workspace](analysis.png)
 
 Caption: The interactive measurement workspace where users position and resize the virtual ₹10 reference over the yolks.
 
@@ -230,7 +230,7 @@ Caption: The interactive measurement workspace where users position and resize t
 
 3. Results / Leaderboard
 
-![Results and Leaderboard](Add results or leaderboard screenshot here)
+![Results and Leaderboard](leaderboard.png)
 
 Caption: The results interface displaying yolk measurements, comparison results, achievements and leaderboard information.
 
