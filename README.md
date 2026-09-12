@@ -213,7 +213,7 @@ Caption: Complete user journey from entering Unnimutta to uploading an egg, meas
 
 1. Landing Page
 
-![Homepage]
+![Homepage](homepage.png)
 
 
 Caption: The Unnimutta landing page featuring the yellow-and-white visual theme, playful chicken mascot and introductory experience.
